@@ -44,7 +44,15 @@ func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 		}
 		return nil
 	})
-	return common.BytesToHash(data)
+
+	hash := common.BytesToHash(data)
+	err := VerifyBlockSignature(db, number, hash)
+	if err != nil {
+		// TODO: should we return common.Hash{} here?
+		return common.BytesToHash([]byte{})
+	}
+
+	return hash
 }
 
 // WriteCanonicalHash stores the hash assigned to a canonical block number.
@@ -63,7 +71,7 @@ func DeleteCanonicalHash(db ethdb.KeyValueWriter, number uint64) {
 
 // ReadAllHashes retrieves all the hashes assigned to blocks at a certain heights,
 // both canonical and reorged forks included.
-func ReadAllHashes(db ethdb.Iteratee, number uint64) []common.Hash {
+func ReadAllHashes(db ethdb.Database, number uint64) []common.Hash {
 	prefix := headerKeyPrefix(number)
 
 	hashes := make([]common.Hash, 0, 1)
@@ -75,6 +83,15 @@ func ReadAllHashes(db ethdb.Iteratee, number uint64) []common.Hash {
 			hashes = append(hashes, common.BytesToHash(key[len(key)-32:]))
 		}
 	}
+
+	// For each block hash, verify the block signature
+	for _, hash := range hashes {
+		err := VerifyBlockSignature(db, number, hash)
+		if err != nil {
+			return nil
+		}
+	}
+
 	return hashes
 }
 
@@ -86,7 +103,7 @@ type NumberHash struct {
 // ReadAllHashesInRange retrieves all the hashes assigned to blocks at certain
 // heights, both canonical and reorged forks included.
 // This method considers both limits to be _inclusive_.
-func ReadAllHashesInRange(db ethdb.Iteratee, first, last uint64) []*NumberHash {
+func ReadAllHashesInRange(db ethdb.Database, first, last uint64) []*NumberHash {
 	var (
 		start     = encodeBlockNumber(first)
 		keyLength = len(headerPrefix) + 8 + 32
@@ -106,13 +123,20 @@ func ReadAllHashesInRange(db ethdb.Iteratee, first, last uint64) []*NumberHash {
 		hash := common.BytesToHash(key[len(key)-32:])
 		hashes = append(hashes, &NumberHash{num, hash})
 	}
+	// For each block hash, verify the block signature
+	for _, numHash := range hashes {
+		err := VerifyBlockSignature(db, numHash.Number, numHash.Hash)
+		if err != nil {
+			return nil
+		}
+	}
 	return hashes
 }
 
 // ReadAllCanonicalHashes retrieves all canonical number and hash mappings at the
 // certain chain range. If the accumulated entries reaches the given threshold,
 // abort the iteration and return the semi-finish result.
-func ReadAllCanonicalHashes(db ethdb.Iteratee, from uint64, to uint64, limit int) ([]uint64, []common.Hash) {
+func ReadAllCanonicalHashes(db ethdb.Database, from uint64, to uint64, limit int) ([]uint64, []common.Hash) {
 	// Short circuit if the limit is 0.
 	if limit == 0 {
 		return nil, nil
@@ -139,16 +163,29 @@ func ReadAllCanonicalHashes(db ethdb.Iteratee, from uint64, to uint64, limit int
 			}
 		}
 	}
+	// For each block hash, verify the block signature
+	for i, hash := range hashes {
+		err := VerifyBlockSignature(db, numbers[i], hash)
+		if err != nil {
+			return nil, nil
+		}
+	}
 	return numbers, hashes
 }
 
 // ReadHeaderNumber returns the header number assigned to a hash.
-func ReadHeaderNumber(db ethdb.KeyValueReader, hash common.Hash) *uint64 {
+func ReadHeaderNumber(db ethdb.Reader, hash common.Hash) *uint64 {
 	data, _ := db.Get(headerNumberKey(hash))
 	if len(data) != 8 {
 		return nil
 	}
 	number := binary.BigEndian.Uint64(data)
+
+	err := VerifyBlockSignature(db, number, hash)
+	if err != nil {
+		return nil
+	}
+
 	return &number
 }
 
@@ -169,9 +206,20 @@ func DeleteHeaderNumber(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadHeadHeaderHash retrieves the hash of the current canonical head header.
-func ReadHeadHeaderHash(db ethdb.KeyValueReader) common.Hash {
+func ReadHeadHeaderHash(db ethdb.Reader) common.Hash {
 	data, _ := db.Get(headHeaderKey)
 	if len(data) == 0 {
+		return common.Hash{}
+	}
+	// TODO: I dont think this is right?
+	// Get current cannonical head block number
+	number := ReadHeaderNumber(db, common.BytesToHash(data))
+	if number == nil {
+		return common.Hash{}
+	}
+	// Verify the block signature
+	err := VerifyBlockSignature(db, *number, common.BytesToHash(data))
+	if err != nil {
 		return common.Hash{}
 	}
 	return common.BytesToHash(data)
@@ -185,11 +233,22 @@ func WriteHeadHeaderHash(db ethdb.KeyValueWriter, hash common.Hash) {
 }
 
 // ReadHeadBlockHash retrieves the hash of the current canonical head block.
-func ReadHeadBlockHash(db ethdb.KeyValueReader) common.Hash {
+func ReadHeadBlockHash(db ethdb.Database) common.Hash {
 	data, _ := db.Get(headBlockKey)
 	if len(data) == 0 {
 		return common.Hash{}
 	}
+
+	block := ReadHeadBlock(db)
+	if block == nil {
+		return common.Hash{}
+	}
+	// Verify the block signature
+	err := VerifyBlockSignature(db, block.NumberU64(), common.BytesToHash(data))
+	if err != nil {
+		return common.Hash{}
+	}
+
 	return common.BytesToHash(data)
 }
 
@@ -555,6 +614,9 @@ func ReadRawReceipts(db ethdb.Reader, hash common.Hash, number uint64) types.Rec
 	for i, storageReceipt := range storageReceipts {
 		receipts[i] = (*types.Receipt)(storageReceipt)
 	}
+
+	// TODO: think what we need to do here
+
 	return receipts
 }
 
@@ -651,7 +713,7 @@ func (r *receiptLogs) DecodeRLP(s *rlp.Stream) error {
 // ReadLogs retrieves the logs for all transactions in a block. In case
 // receipts is not found, a nil is returned.
 // Note: ReadLogs does not derive unstored log fields.
-func ReadLogs(db ethdb.Reader, hash common.Hash, number uint64) [][]*types.Log {
+func ReadLogs(db ethdb.Database, hash common.Hash, number uint64) [][]*types.Log {
 	// Retrieve the flattened receipt slice
 	data := ReadReceiptsRLP(db, hash, number)
 	if len(data) == 0 {
@@ -671,6 +733,16 @@ func ReadLogs(db ethdb.Reader, hash common.Hash, number uint64) [][]*types.Log {
 	for i, receipt := range receipts {
 		logs[i] = receipt.Logs
 	}
+
+	// Get a proof of the receipts trie and check that its valid
+
+	// First the cannonical head block
+	headBlock := ReadHeadBlock(db)
+	if headBlock == nil {
+		return nil
+	}
+	// receiptsTrieHash := headBlock.ReceiptHash()
+	// TODO: we need to add a proof here
 	return logs
 }
 
@@ -716,7 +788,12 @@ func ReadBlock(db ethdb.Reader, hash common.Hash, number uint64) *types.Block {
 	if body == nil {
 		return nil
 	}
-	return types.NewBlockWithHeader(header).WithBody(*body)
+	block := types.NewBlockWithHeader(header).WithBody(*body)
+	err := VerifySignature(db, block)
+	if err != nil {
+		return nil
+	}
+	return block
 }
 
 // WriteBlock serializes a block into the database, header and body separately.
@@ -800,6 +877,10 @@ func ReadBadBlock(db ethdb.Reader, hash common.Hash) *types.Block {
 			if bad.Body != nil {
 				block = block.WithBody(*bad.Body)
 			}
+			err := VerifySignature(db, block)
+			if err != nil {
+				return nil
+			}
 			return block
 		}
 	}
@@ -824,6 +905,13 @@ func ReadAllBadBlocks(db ethdb.Reader) []*types.Block {
 			block = block.WithBody(*bad.Body)
 		}
 		blocks = append(blocks, block)
+	}
+
+	for _, block := range blocks {
+		err := VerifySignature(db, block)
+		if err != nil {
+			return nil
+		}
 	}
 	return blocks
 }
@@ -911,11 +999,17 @@ func ReadHeadHeader(db ethdb.Reader) *types.Header {
 	if headHeaderNumber == nil {
 		return nil
 	}
+	// Verify the block signature
+	err := VerifySignature(db, ReadBlock(db, headHeaderHash, *headHeaderNumber))
+	if err != nil {
+		return nil
+	}
+
 	return ReadHeader(db, headHeaderHash, *headHeaderNumber)
 }
 
 // ReadHeadBlock returns the current canonical head block.
-func ReadHeadBlock(db ethdb.Reader) *types.Block {
+func ReadHeadBlock(db ethdb.Database) *types.Block {
 	headBlockHash := ReadHeadBlockHash(db)
 	if headBlockHash == (common.Hash{}) {
 		return nil
@@ -924,5 +1018,13 @@ func ReadHeadBlock(db ethdb.Reader) *types.Block {
 	if headBlockNumber == nil {
 		return nil
 	}
-	return ReadBlock(db, headBlockHash, *headBlockNumber)
+	block := ReadBlock(db, headBlockHash, *headBlockNumber)
+
+	// Verify the block signature
+	err := VerifySignature(db, block)
+	if err != nil {
+		return nil
+	}
+
+	return block
 }
