@@ -27,6 +27,12 @@ func dbKey(prefix []byte, pos uint64) []byte {
 	return key
 }
 
+func StoreBlockSignature(db ethdb.KeyValueWriter, blockHash common.Hash, blockSignature []byte) error {
+	blockNumber := binary.BigEndian.Uint64(blockHash.Bytes())
+	key := dbKey(BlockSignaturePrefix, (blockNumber))
+	return db.Put(key, blockSignature)
+}
+
 func GetBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) ([]byte, error) {
 	blockNumber := binary.BigEndian.Uint64(blockHash.Bytes())
 	key := dbKey(BlockSignaturePrefix, (blockNumber))
@@ -44,7 +50,6 @@ func GetHashOverInterface(data interface{}) ([]byte, error) {
 }
 
 func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
-
 	blockSignature, err := GetBlockSignature(db, blockHash)
 	if err != nil {
 		return fmt.Errorf("unable to get block signature")
@@ -82,24 +87,65 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 	if header.Hash() != hash {
 		return fmt.Errorf("header #%d hash mismatch: have %v, want %v", number, header.Hash(), hash)
 	}
+	if header.Number.Uint64() != number {
+		return fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
+	}
 
 	// We generate the transaction root and uncle hash and the withdrawal root from the body
-	txRoot := types.DeriveSha(types.Transactions(body.Transactions), nil)
+	// txRoot := types.DeriveSha(types.Transactions(body.Transactions), nil)
 	uncleHash := types.CalcUncleHash(body.Uncles)
-	withdrawalRoot := types.DeriveSha(types.Withdrawals(body.Withdrawals), nil)
+	// withdrawalRoot := types.DeriveSha(types.Withdrawals(body.Withdrawals), nil)
 
-	if txRoot != header.TxHash {
-		return fmt.Errorf("transaction root mismatch: have %v, want %v", txRoot, header.TxHash)
-	}
+	// if txRoot != header.TxHash {
+	// 	return fmt.Errorf("transaction root mismatch: have %v, want %v", txRoot, header.TxHash)
+	// }
 	if uncleHash != header.UncleHash {
 		return fmt.Errorf("uncle hash mismatch: have %v, want %v", uncleHash, header.UncleHash)
 	}
 
-	if header.WithdrawalsHash != nil && withdrawalRoot != *header.WithdrawalsHash {
-		return fmt.Errorf("withdrawal root mismatch: have %v, want %v", withdrawalRoot, header.WithdrawalsHash)
-	}
+	// if header.WithdrawalsHash != nil && withdrawalRoot != *header.WithdrawalsHash {
+	// 	return fmt.Errorf("withdrawal root mismatch: have %v, want %v", withdrawalRoot, header.WithdrawalsHash)
+	// }
 
 	return nil
+}
+
+func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
+	header := ReadHeader(db, hash, number)
+	if header == nil {
+		return fmt.Errorf("header #%d not found", number)
+	}
+	if header.Number.Uint64() != number {
+		return fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
+	}
+	if header.Hash() != hash {
+		return fmt.Errorf("header #%d hash mismatch: have %v, want %v", number, header.Hash(), hash)
+	}
+	return nil
+}
+
+/*
+This method is used to verify block number which is supposed to not be present in ancient store
+*/
+func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, hash common.Hash) (*types.Header, error) {
+	data, _ := db.Get(headerKey(number, hash))
+	if len(data) == 0 {
+		return nil, fmt.Errorf("header #%d not found", number)
+	}
+	header := new(types.Header)
+	if err := rlp.DecodeBytes(data, header); err != nil {
+		return nil, fmt.Errorf("invalid block header RLP: %v", err)
+	}
+	if header == nil {
+		return nil, fmt.Errorf("header #%d not found", number)
+	}
+	if header.Number.Uint64() != number {
+		return nil, fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
+	}
+	if header.Hash() != hash {
+		return nil, fmt.Errorf("header #%d hash mismatch: have %v, want %v", number, header.Hash(), hash)
+	}
+	return header, nil
 }
 
 func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) error {

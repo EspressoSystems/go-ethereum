@@ -29,10 +29,33 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"golang.org/x/crypto/sha3"
 )
+
+func StoreHeaderSignature(db ethdb.KeyValueWriter, hash common.Hash) error {
+	// Generate a new public and private key pair which will be used to sign the block
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		return fmt.Errorf("Failed to generate key pair: %v", err)
+	}
+	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+
+	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	// Sign the hash of the header using the private key
+	signature, err := crypto.Sign(hash.Bytes(), key)
+	if err != nil {
+		return fmt.Errorf("failed to sign header: %v", err)
+	}
+
+	err = StoreBlockSignature(db, hash, signature)
+	if err != nil {
+		return fmt.Errorf("failed to store signature: %v", err)
+	}
+	return nil
+}
 
 // Tests block header storage and retrieval operations.
 func TestHeaderStorage(t *testing.T) {
@@ -40,8 +63,13 @@ func TestHeaderStorage(t *testing.T) {
 
 	// Create a test header to move around the database and make sure it's really new
 	header := &types.Header{Number: big.NewInt(42), Extra: []byte("test header")}
+
 	if entry := ReadHeader(db, header.Hash(), header.Number.Uint64()); entry != nil {
 		t.Fatalf("Non existent header returned: %v", entry)
+	}
+	err := StoreHeaderSignature(db, header.Hash())
+	if err != nil {
+		t.Fatalf("Failed to store header signature: %v", err)
 	}
 	// Write and verify the header in the database
 	WriteHeader(db, header)
@@ -74,9 +102,19 @@ func TestBodyStorage(t *testing.T) {
 	// Create a test body to move around the database and make sure it's really new
 	body := &types.Body{Uncles: []*types.Header{{Extra: []byte("test header")}}}
 
-	hasher := sha3.NewLegacyKeccak256()
-	rlp.Encode(hasher, body)
-	hash := common.BytesToHash(hasher.Sum(nil))
+	// Create a test header to move around the database and make sure it's really new
+	header := &types.Header{Number: big.NewInt(0), Extra: []byte("test header")}
+	// hasher := sha3.NewLegacyKeccak256()
+	// rlp.Encode(hasher, body)
+	hash := header.Hash()
+	// Sign and store the hash
+	err := StoreHeaderSignature(db, hash)
+	if err != nil {
+		t.Fatalf("Failed to store header signature: %v", err)
+	}
+
+	// Write header
+	WriteHeader(db, header)
 
 	if entry := ReadBody(db, hash, 0); entry != nil {
 		t.Fatalf("Non existent body returned: %v", entry)

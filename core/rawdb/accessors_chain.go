@@ -48,10 +48,14 @@ func ReadCanonicalHash(db ethdb.Reader, number uint64) common.Hash {
 	// Verify the block signature
 	err := VerifyBlockSignature(db, common.BytesToHash(data))
 	if err != nil {
-		// TODO: check what will happen here
 		return common.Hash{}
 	}
 
+	// Verify the block number
+	err = VerifyBlockNumber(db, number, common.BytesToHash(data))
+	if err != nil {
+		return common.Hash{}
+	}
 	return common.BytesToHash(data)
 }
 
@@ -87,9 +91,9 @@ func ReadAllHashes(db ethdb.KeyValueStore, number uint64) []common.Hash {
 	for _, hash := range hashes {
 		err := VerifyBlockSignature(db, hash)
 		if err != nil {
-			// TODO: check what will happen here
 			return nil
 		}
+		_, err = VerifyBlockNumberWithoutAncients(db, number, hash)
 	}
 	return hashes
 }
@@ -127,7 +131,11 @@ func ReadAllHashesInRange(db ethdb.KeyValueStore, first, last uint64) []*NumberH
 	for _, numHash := range hashes {
 		err := VerifyBlockSignature(db, numHash.Hash)
 		if err != nil {
-			// TODO: check what will happen here
+			return nil
+		}
+		// Verify Block number
+		_, err = VerifyBlockNumberWithoutAncients(db, numHash.Number, numHash.Hash)
+		if err != nil {
 			return nil
 		}
 	}
@@ -165,12 +173,18 @@ func ReadAllCanonicalHashes(db ethdb.KeyValueStore, from uint64, to uint64, limi
 		}
 	}
 	// For each block hash, verify the block signature
-	for _, hash := range hashes {
+	for i, hash := range hashes {
 		err := VerifyBlockSignature(db, hash)
 		if err != nil {
 			return nil, nil
 		}
+		// Verify block number
+		_, err = VerifyBlockNumberWithoutAncients(db, numbers[i], hash)
+		if err != nil {
+			return nil, nil
+		}
 	}
+
 	return numbers, hashes
 }
 
@@ -181,7 +195,13 @@ func ReadHeaderNumber(db ethdb.KeyValueReader, hash common.Hash) *uint64 {
 		return nil
 	}
 	number := binary.BigEndian.Uint64(data)
+	// Verify signature over the block
 	err := VerifyBlockSignature(db, hash)
+	if err != nil {
+		return nil
+	}
+	// Verify Block number
+	_, err = VerifyBlockNumberWithoutAncients(db, number, hash)
 	if err != nil {
 		return nil
 	}
@@ -300,7 +320,17 @@ func ReadLastPivotNumber(db ethdb.KeyValueReader) *uint64 {
 		log.Error("Invalid pivot block number in database", "err", err)
 		return nil
 	}
-	// TODO: implement this
+
+	header, err := VerifyBlockNumberWithoutAncients(db, pivot, common.Hash{})
+	if err != nil {
+		return nil
+	}
+	// Verify Block Signature
+	err = VerifyBlockSignature(db, header.Hash())
+	if err != nil {
+		return nil
+	}
+
 	return &pivot
 }
 
@@ -323,7 +353,16 @@ func ReadTxIndexTail(db ethdb.KeyValueReader) *uint64 {
 		return nil
 	}
 	number := binary.BigEndian.Uint64(data)
-	// TODO: implement this
+	// Verify Block number
+	header, err := VerifyBlockNumberWithoutAncients(db, number, common.Hash{})
+	if err != nil {
+		return nil
+	}
+	// Verify Block Signature
+	err = VerifyBlockSignature(db, header.Hash())
+	if err != nil {
+		return nil
+	}
 	return &number
 }
 
@@ -405,12 +444,22 @@ func ReadHeaderRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValu
 		data, _ = db.Get(headerKey(number, hash))
 		return nil
 	})
-	// verify the block signature
-	err := VerifyBlockSignature(db, common.BytesToHash(data))
+
+	// Convert the header rlp to a header
+	header := new(types.Header)
+	err := rlp.Decode(bytes.NewReader(data), header)
 	if err != nil {
 		return nil
 	}
-	// TODO: we might have to check if the block number is indeed part of this hash
+
+	err = VerifyBlockSignature(db, hash)
+	if err != nil {
+		fmt.Printf("VerifyBlockSignature error in ReadHeaderRLP: %v\n", err)
+		return nil
+	}
+	if header.Hash() != hash {
+		return nil
+	}
 	return data
 }
 
@@ -445,11 +494,13 @@ func ReadHeader(db ethdb.Reader, hash common.Hash, number uint64) *types.Header 
 	// verify the block signature
 	err := VerifyBlockSignature(db, hash)
 	if err != nil {
+		fmt.Printf("VerifyBlockSignature error: %v\n", err)
 		return nil
 	}
 	// Hash the header and see if it matches the hash we have
 	checkHash := header.Hash()
 	if checkHash != hash || header.Number.Uint64() != number {
+		fmt.Printf("checkHash: %v, hash: %v, number: %v\n", checkHash, hash, number)
 		return nil
 	}
 	return header
@@ -519,8 +570,9 @@ func ReadBodyRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue 
 		return nil
 	})
 
-	err := VerifyBlockSignature(db, common.BytesToHash(data))
+	err := VerifyBlockSignature(db, hash)
 	if err != nil {
+		fmt.Printf("VerifyBlockSignature error: %v\n", err)
 		return nil
 	}
 	// Check that body is indeed part of the block
@@ -532,6 +584,7 @@ func ReadBodyRLP(db ethdb.Reader, hash common.Hash, number uint64) rlp.RawValue 
 	}
 	err = VerifyBodyMatchesBlockHashProof(db, number, hash, body)
 	if err != nil {
+		fmt.Printf("VerifyBodyMatchesBlockHashProof error: %v\n", err)
 		return nil
 	}
 	return data
@@ -585,10 +638,13 @@ func WriteBodyRLP(db ethdb.KeyValueWriter, hash common.Hash, number uint64, rlp 
 
 // HasBody verifies the existence of a block body corresponding to the hash.
 func HasBody(db ethdb.Reader, hash common.Hash, number uint64) bool {
-
-	// TODO: here we need a proof check as well
 	// Verify the block signature,
 	err := VerifyBlockSignature(db, hash)
+	if err != nil {
+		return false
+	}
+	// Verify Block number
+	err = VerifyBlockNumber(db, number, hash)
 	if err != nil {
 		return false
 	}
@@ -616,11 +672,13 @@ func ReadBody(db ethdb.Reader, hash common.Hash, number uint64) *types.Body {
 	// Verify the block signature,
 	err := VerifyBlockSignature(db, hash)
 	if err != nil {
+		fmt.Printf("VerifyBlockSignature error: %v\n", err)
 		return nil
 	}
 	// Check that body is indeed part of the block
 	err = VerifyBodyMatchesBlockHashProof(db, number, hash, body)
 	if err != nil {
+		fmt.Printf("VerifyBodyMatchesBlockHashProof error: %v\n", err)
 		return nil
 	}
 	return body
@@ -645,9 +703,13 @@ func DeleteBody(db ethdb.KeyValueWriter, hash common.Hash, number uint64) {
 // HasReceipts verifies the existence of all the transaction receipts belonging
 // to a block.
 func HasReceipts(db ethdb.Reader, hash common.Hash, number uint64) bool {
-	// TODO: here we need a proof check as well
 	// Verify the block signature,
 	err := VerifyBlockSignature(db, hash)
+	if err != nil {
+		return false
+	}
+	// Verify Block number
+	err = VerifyBlockNumber(db, number, hash)
 	if err != nil {
 		return false
 	}
