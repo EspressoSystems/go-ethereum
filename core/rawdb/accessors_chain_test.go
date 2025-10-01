@@ -99,13 +99,14 @@ func TestHeaderStorage(t *testing.T) {
 func TestBodyStorage(t *testing.T) {
 	db := NewMemoryDatabase()
 
+	SetDefaultTrieHasher(newTestHasher())
+
 	// Create a test body to move around the database and make sure it's really new
 	body := &types.Body{Uncles: []*types.Header{{Extra: []byte("test header")}}}
 
 	// Create a test header to move around the database and make sure it's really new
-	header := &types.Header{Number: big.NewInt(0), Extra: []byte("test header")}
-	// hasher := sha3.NewLegacyKeccak256()
-	// rlp.Encode(hasher, body)
+	header := &types.Header{Number: big.NewInt(0), UncleHash: types.CalcUncleHash(body.Uncles)}
+
 	hash := header.Hash()
 	// Sign and store the hash
 	err := StoreHeaderSignature(db, hash)
@@ -121,6 +122,7 @@ func TestBodyStorage(t *testing.T) {
 	}
 	// Write and verify the body in the database
 	WriteBody(db, hash, 0, body)
+
 	if entry := ReadBody(db, hash, 0); entry == nil {
 		t.Fatalf("Stored body not found")
 	} else if types.DeriveSha(types.Transactions(entry.Transactions), newTestHasher()) != types.DeriveSha(types.Transactions(body.Transactions), newTestHasher()) || types.CalcUncleHash(entry.Uncles) != types.CalcUncleHash(body.Uncles) {
@@ -154,6 +156,11 @@ func TestBlockStorage(t *testing.T) {
 		TxHash:      types.EmptyTxsHash,
 		ReceiptHash: types.EmptyReceiptsHash,
 	})
+	// Sign and store the hash
+	err := StoreHeaderSignature(db, block.Header().Hash())
+	if err != nil {
+		t.Fatalf("Failed to store header signature: %v", err)
+	}
 	if entry := ReadBlock(db, block.Hash(), block.NumberU64()); entry != nil {
 		t.Fatalf("Non existent block returned: %v", entry)
 	}
@@ -202,6 +209,12 @@ func TestPartialBlockStorage(t *testing.T) {
 		TxHash:      types.EmptyTxsHash,
 		ReceiptHash: types.EmptyReceiptsHash,
 	})
+
+	// Sign and store the hash
+	err := StoreHeaderSignature(db, block.Header().Hash())
+	if err != nil {
+		t.Fatalf("Failed to store header signature: %v", err)
+	}
 	// Store a header and check that it's not recognized as a block
 	WriteHeader(db, block.Header())
 	if entry := ReadBlock(db, block.Hash(), block.NumberU64()); entry != nil {
@@ -239,6 +252,13 @@ func TestBadBlockStorage(t *testing.T) {
 		TxHash:      types.EmptyTxsHash,
 		ReceiptHash: types.EmptyReceiptsHash,
 	})
+
+	// Sign and store the hash
+	err := StoreHeaderSignature(db, block.Header().Hash())
+	if err != nil {
+		t.Fatalf("Failed to store header signature: %v", err)
+	}
+
 	if entry := ReadBadBlock(db, block.Hash()); entry != nil {
 		t.Fatalf("Non existent block returned: %v", entry)
 	}

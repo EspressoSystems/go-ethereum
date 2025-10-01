@@ -14,6 +14,10 @@ import (
 
 var BlockSignaturePrefix = []byte("blockSignature")
 
+var DefaultHasher types.TrieHasher
+
+func SetDefaultTrieHasher(hasher types.TrieHasher) { DefaultHasher = hasher }
+
 func uint64ToKey(x uint64) []byte {
 	data := make([]byte, 8)
 	binary.BigEndian.PutUint64(data, x)
@@ -91,21 +95,35 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 		return fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
 	}
 
-	// We generate the transaction root and uncle hash and the withdrawal root from the body
-	// txRoot := types.DeriveSha(types.Transactions(body.Transactions), nil)
-	uncleHash := types.CalcUncleHash(body.Uncles)
-	// withdrawalRoot := types.DeriveSha(types.Withdrawals(body.Withdrawals), nil)
+	txRoot := types.EmptyTxsHash
+	uncleHash := types.EmptyUncleHash
+	withdrawalRoot := types.EmptyWithdrawalsHash
 
-	// if txRoot != header.TxHash {
-	// 	return fmt.Errorf("transaction root mismatch: have %v, want %v", txRoot, header.TxHash)
-	// }
+	hasher := DefaultHasher
+	// We generate the transaction root and uncle hash and the withdrawal root from the body
+	if len(body.Transactions) > 0 {
+		fmt.Printf("body.Transactions %v\n", body.Transactions)
+		fmt.Printf("coming inside body.Transactions %v\n", body.Transactions)
+		txRoot = types.DeriveSha(types.Transactions(body.Transactions), hasher)
+	}
+	if len(body.Uncles) > 0 {
+
+		uncleHash = types.CalcUncleHash(body.Uncles)
+	}
+	if len(body.Withdrawals) > 0 {
+		withdrawalRoot = types.DeriveSha(types.Withdrawals(body.Withdrawals), hasher)
+	}
+
+	if txRoot != header.TxHash {
+		return fmt.Errorf("transaction root mismatch: have %v, want %v", txRoot, header.TxHash)
+	}
 	if uncleHash != header.UncleHash {
 		return fmt.Errorf("uncle hash mismatch: have %v, want %v", uncleHash, header.UncleHash)
 	}
 
-	// if header.WithdrawalsHash != nil && withdrawalRoot != *header.WithdrawalsHash {
-	// 	return fmt.Errorf("withdrawal root mismatch: have %v, want %v", withdrawalRoot, header.WithdrawalsHash)
-	// }
+	if header.WithdrawalsHash != nil && withdrawalRoot != *header.WithdrawalsHash {
+		return fmt.Errorf("withdrawal root mismatch: have %v, want %v", withdrawalRoot, header.WithdrawalsHash)
+	}
 
 	return nil
 }
@@ -154,8 +172,9 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 	if header == nil {
 		return fmt.Errorf("header #%d not found", number)
 	}
+	hasher := DefaultHasher
 
-	root := types.DeriveSha(types.Receipts(receipts), nil)
+	root := types.DeriveSha(types.Receipts(receipts), hasher)
 	if root != header.ReceiptHash {
 		return fmt.Errorf("receipt root mismatch: have %v, want %v", root, header.ReceiptHash)
 	}
