@@ -1,44 +1,33 @@
-name: CI
-run-name: CI triggered from @${{ github.actor }} of ${{ github.head_ref }}
+name: Go tests CI
+run-name: Go tests CI triggered from @${{ github.actor }} of ${{ github.head_ref }}
 
 on:
   workflow_dispatch:
+  merge_group:
   pull_request:
   push:
     branches:
-      - "**" # run on pushes to any branch
+      - integration
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  run-tests:
+  test:
+    name: Go Tests
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: 1.21.4
-      - name: Test
-        run: make test
+      - name: Install dependencies
+        run: >
+          make all
 
-  run-linter:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version: 1.21.4
-      - name: Test
-        run: make lint
+      - name: Run tests
+        run: >
+          make test
