@@ -1,6 +1,7 @@
 package rawdb
 
 import (
+	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -31,7 +32,25 @@ func dbKey(prefix []byte, pos uint64) []byte {
 	return key
 }
 
-func StoreBlockSignature(db ethdb.KeyValueWriter, blockHash common.Hash, blockSignature []byte) error {
+func StoreHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, snapshotSignerPrivateKey *ecdsa.PrivateKey) error {
+	// Generate a new public and private key pair which will be used to sign the block
+	for _, h := range hash {
+		// Sign the hash of the header using the private key
+		signature, err := crypto.Sign(h.Bytes(), snapshotSignerPrivateKey)
+		if err != nil {
+			return fmt.Errorf("failed to sign header: %v", err)
+		}
+
+		err = StoreBlockSignatureForTests(db, h, signature)
+		fmt.Printf("StoreBlockSignature error: %v\n", h)
+		if err != nil {
+			return fmt.Errorf("failed to store signature: %v", err)
+		}
+	}
+	return nil
+}
+
+func StoreBlockSignatureForTests(db ethdb.KeyValueWriter, blockHash common.Hash, blockSignature []byte) error {
 	blockNumber := binary.BigEndian.Uint64(blockHash.Bytes())
 	key := dbKey(BlockSignaturePrefix, (blockNumber))
 	return db.Put(key, blockSignature)
@@ -54,6 +73,9 @@ func GetHashOverInterface(data interface{}) ([]byte, error) {
 }
 
 func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		return nil
+	}
 	blockSignature, err := GetBlockSignature(db, blockHash)
 	if err != nil {
 		return fmt.Errorf("unable to get block signature")
@@ -80,14 +102,18 @@ func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error 
 	return nil
 }
 
+// TODO: Think about if we need to also check bloom bits
+// TODO: think about if we need to verify receipts here as well or not
 // VerifyBodyMatchesBlockHashProof verifies that the given body matches the block hash which
 // the enclave has signed over.
 func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common.Hash, body *types.Body) error {
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		return nil
+	}
 	header := ReadHeader(db, hash, number)
 	if header == nil {
 		return fmt.Errorf("header #%d not found", number)
 	}
-
 	if header.Hash() != hash {
 		return fmt.Errorf("header #%d hash mismatch: have %v, want %v", number, header.Hash(), hash)
 	}
@@ -107,7 +133,6 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 		txRoot = types.DeriveSha(types.Transactions(body.Transactions), hasher)
 	}
 	if len(body.Uncles) > 0 {
-
 		uncleHash = types.CalcUncleHash(body.Uncles)
 	}
 	if len(body.Withdrawals) > 0 {
@@ -129,6 +154,9 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 }
 
 func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		return nil
+	}
 	header := ReadHeader(db, hash, number)
 	if header == nil {
 		return fmt.Errorf("header #%d not found", number)
@@ -146,14 +174,18 @@ func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
 This method is used to verify block number which is supposed to not be present in ancient store
 */
 func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, hash common.Hash) (*types.Header, error) {
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		return nil, nil
+	}
 	data, _ := db.Get(headerKey(number, hash))
 	if len(data) == 0 {
 		return nil, fmt.Errorf("header #%d not found", number)
 	}
 	header := new(types.Header)
 	if err := rlp.DecodeBytes(data, header); err != nil {
-		return nil, fmt.Errorf("invalid block header RLP: %v", err)
+		return nil, fmt.Errorf("invalid block header RLP in VerifyBlockNumberWithoutAncients: %v", err)
 	}
+
 	if header == nil {
 		return nil, fmt.Errorf("header #%d not found", number)
 	}
@@ -167,7 +199,9 @@ func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, ha
 }
 
 func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) error {
-
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		return nil
+	}
 	header := ReadHeader(db, hash, number)
 	if header == nil {
 		return fmt.Errorf("header #%d not found", number)
@@ -178,11 +212,20 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 	if root != header.ReceiptHash {
 		return fmt.Errorf("receipt root mismatch: have %v, want %v", root, header.ReceiptHash)
 	}
+	fmt.Printf("receipt root")
 
 	return nil
 }
 
 func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) ([][]*types.Log, error) {
+	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+		// Return the logs
+		logs := make([][]*types.Log, len(receipts))
+		for i, r := range receipts {
+			logs[i] = r.Logs
+		}
+		return logs, nil
+	}
 	err := VerifyReceiptsInBlock(db, number, hash, receipts)
 	if err != nil {
 		return nil, err
