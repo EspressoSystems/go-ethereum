@@ -445,9 +445,9 @@ func TestBlockReceiptStorage(t *testing.T) {
 	}
 	receipt2.Bloom = types.CreateBloom(receipt2)
 	receipts := []*types.Receipt{receipt1, receipt2}
-
+	bloomHash := types.MergeBloom(receipts)
 	// Check that no receipt entries are in a pristine database
-	header := &types.Header{Number: big.NewInt(0), Extra: []byte("test block"), ReceiptHash: types.DeriveSha(types.Receipts(receipts), newTestHasher()), TxHash: types.DeriveSha(types.Transactions(body.Transactions), newTestHasher()), UncleHash: types.EmptyUncleHash}
+	header := &types.Header{Number: big.NewInt(0), Extra: []byte("test block"), ReceiptHash: types.DeriveSha(types.Receipts(receipts), newTestHasher()), TxHash: types.DeriveSha(types.Transactions(body.Transactions), newTestHasher()), UncleHash: types.EmptyUncleHash, Bloom: bloomHash}
 	hash := header.Hash()
 	if rs := ReadReceipts(db, hash, 0, 0, params.TestChainConfig); len(rs) != 0 {
 		t.Fatalf("non existent receipts returned: %v", rs)
@@ -588,9 +588,25 @@ func TestCanonicalHashIteration(t *testing.T) {
 	if len(numbers) != 0 {
 		t.Fatalf("No entry should be returned to iterate an empty db")
 	}
+
+	// Sign the new header
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	SetDefaultTrieHasher(newTestHasher())
 	// Fill database with testing data.
 	for i := uint64(1); i <= 8; i++ {
-		WriteCanonicalHash(db, common.Hash{}, i)
+		header := types.Header{Number: big.NewInt(int64(i))}
+		WriteHeader(db, &header)
+		WriteCanonicalHash(db, header.Hash(), i)
+		err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
+		if err != nil {
+			t.Fatalf("failed to store header signature: %v", err)
+		}
+
 	}
 	for i, c := range cases {
 		numbers, _ := ReadAllCanonicalHashes(db, c.from, c.to, c.limit)
@@ -812,6 +828,7 @@ func TestReadLogs(t *testing.T) {
 	receipts := []*types.Receipt{receipt1, receipt2}
 
 	header := &types.Header{Number: big.NewInt(0), Extra: []byte("test block"), ReceiptHash: types.DeriveSha(types.Receipts(receipts), newTestHasher()), TxHash: types.DeriveSha(types.Transactions(body.Transactions), newTestHasher()), UncleHash: types.EmptyUncleHash}
+	header.Bloom = types.MergeBloom(receipts)
 	hash := header.Hash()
 	key, err := crypto.GenerateKey()
 	if err != nil {

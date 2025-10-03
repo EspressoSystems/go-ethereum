@@ -18,6 +18,7 @@ package rawdb
 
 import (
 	"math/big"
+	"os"
 	"reflect"
 	"sort"
 	"sync"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 )
 
 func TestChainIterator(t *testing.T) {
@@ -34,9 +36,25 @@ func TestChainIterator(t *testing.T) {
 	var block *types.Block
 	var txs []*types.Transaction
 	to := common.BytesToAddress([]byte{0x11})
-	block = types.NewBlock(&types.Header{Number: big.NewInt(int64(0))}, nil, nil, newTestHasher()) // Empty genesis block
+	header := types.Header{Number: big.NewInt(int64(0))}
+	block = types.NewBlock(&header, nil, nil, newTestHasher()) // Empty genesis block
+	WriteHeader(chainDb, &header)
 	WriteBlock(chainDb, block)
 	WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+
+	// Sign the new header
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
+	if err != nil {
+		t.Fatalf("failed to store header signature: %v", err)
+	}
+	SetDefaultTrieHasher(newTestHasher())
+
 	for i := uint64(1); i <= 10; i++ {
 		var tx *types.Transaction
 		if i%2 == 0 {
@@ -60,9 +78,16 @@ func TestChainIterator(t *testing.T) {
 			})
 		}
 		txs = append(txs, tx)
-		block = types.NewBlock(&types.Header{Number: big.NewInt(int64(i))}, &types.Body{Transactions: types.Transactions{tx}}, nil, newTestHasher())
+		header := types.Header{Number: big.NewInt(int64(i))}
+		block = types.NewBlock(&header, &types.Body{Transactions: types.Transactions{tx}}, nil, newTestHasher())
+		WriteHeader(chainDb, &header)
 		WriteBlock(chainDb, block)
 		WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+		// Sign the new header
+		err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
+		if err != nil {
+			t.Fatalf("failed to store header signature: %v", err)
+		}
 	}
 
 	var cases = []struct {
@@ -111,9 +136,24 @@ func TestIndexTransactions(t *testing.T) {
 	to := common.BytesToAddress([]byte{0x11})
 
 	// Write empty genesis block
-	block = types.NewBlock(&types.Header{Number: big.NewInt(int64(0))}, nil, nil, newTestHasher())
+	header := types.Header{Number: big.NewInt(int64(0))}
+	block = types.NewBlock(&header, nil, nil, newTestHasher())
+	WriteHeader(chainDb, &header)
 	WriteBlock(chainDb, block)
 	WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+
+	// Sign the new header
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
+	if err != nil {
+		t.Fatalf("failed to store header signature: %v", err)
+	}
+	SetDefaultTrieHasher(newTestHasher())
 
 	for i := uint64(1); i <= 10; i++ {
 		var tx *types.Transaction
@@ -138,9 +178,17 @@ func TestIndexTransactions(t *testing.T) {
 			})
 		}
 		txs = append(txs, tx)
-		block = types.NewBlock(&types.Header{Number: big.NewInt(int64(i))}, &types.Body{Transactions: types.Transactions{tx}}, nil, newTestHasher())
+		header := types.Header{Number: big.NewInt(int64(i)), UncleHash: types.EmptyUncleHash, TxHash: types.DeriveSha(types.Transactions{tx}, newTestHasher()), ReceiptHash: types.EmptyRootHash}
+		block = types.NewBlock(&header, &types.Body{Transactions: types.Transactions{tx}}, nil, newTestHasher())
+		WriteHeader(chainDb, &header)
 		WriteBlock(chainDb, block)
 		WriteCanonicalHash(chainDb, block.Hash(), block.NumberU64())
+
+		// Sign the new header
+		err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
+		if err != nil {
+			t.Fatalf("failed to store header signature: %v", err)
+		}
 	}
 	// verify checks whether the tx indices in the range [from, to)
 	// is expected.

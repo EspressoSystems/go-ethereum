@@ -42,7 +42,6 @@ func StoreHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, s
 		}
 
 		err = StoreBlockSignatureForTests(db, h, signature)
-		fmt.Printf("StoreBlockSignature error: %v\n", h)
 		if err != nil {
 			return fmt.Errorf("failed to store signature: %v", err)
 		}
@@ -127,8 +126,6 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 	hasher := DefaultHasher
 	// We generate the transaction root and uncle hash and the withdrawal root from the body
 	if len(body.Transactions) > 0 {
-		fmt.Printf("body.Transactions %v\n", body.Transactions)
-		fmt.Printf("coming inside body.Transactions %v\n", body.Transactions)
 		txRoot = types.DeriveSha(types.Transactions(body.Transactions), hasher)
 	}
 	if len(body.Uncles) > 0 {
