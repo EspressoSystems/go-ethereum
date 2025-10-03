@@ -16,25 +16,21 @@
 
 package tracetest
 
-import (
-	"github.com/ethereum/go-ethereum/common"
-)
+// // prestateTrace is the result of a prestateTrace run.
+// type prestateTrace = map[common.Address]*account
 
-// prestateTrace is the result of a prestateTrace run.
-type prestateTrace = map[common.Address]*account
+// type account struct {
+// 	Balance string                      `json:"balance"`
+// 	Code    string                      `json:"code"`
+// 	Nonce   uint64                      `json:"nonce"`
+// 	Storage map[common.Hash]common.Hash `json:"storage"`
+// }
 
-type account struct {
-	Balance string                      `json:"balance"`
-	Code    string                      `json:"code"`
-	Nonce   uint64                      `json:"nonce"`
-	Storage map[common.Hash]common.Hash `json:"storage"`
-}
-
-// prestateTracerTest defines a single test to check the stateDiff tracer against.
-type prestateTracerTest struct {
-	tracerTestEnv
-	Result interface{} `json:"result"`
-}
+// // prestateTracerTest defines a single test to check the stateDiff tracer against.
+// type prestateTracerTest struct {
+// 	tracerTestEnv
+// 	Result interface{} `json:"result"`
+// }
 
 // TODO: This test is broken in upstream go-ethereum
 
