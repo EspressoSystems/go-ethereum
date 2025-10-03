@@ -437,7 +437,20 @@ func ReadHeaderRange(db ethdb.Reader, number uint64, count uint64) []rlp.RawValu
 	for i := range data {
 		rlpHeaders = append(rlpHeaders, data[len(data)-1-i])
 	}
-	// TODO: havent implemented
+
+	// Decode the rlp headers and check if we have signatures over them
+	for _, rlpHeader := range rlpHeaders {
+		header := new(types.Header)
+		if err := rlp.DecodeBytes(rlpHeader, header); err != nil {
+			log.Error("Failed to decode header", "err", err)
+			return nil
+		}
+		err := VerifyBlockSignature(db, header.Hash())
+		if err != nil {
+			return nil
+		}
+	}
+
 	return rlpHeaders
 }
 

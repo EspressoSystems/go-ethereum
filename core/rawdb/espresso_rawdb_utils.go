@@ -73,7 +73,9 @@ func GetHashOverInterface(data interface{}) ([]byte, error) {
 }
 
 func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	snapshotAddressString := os.Getenv("SNAPSHOT_ADDRESS")
+
+	if snapshotAddressString == "" {
 		return nil
 	}
 	blockSignature, err := GetBlockSignature(db, blockHash)
@@ -93,7 +95,6 @@ func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error 
 	publicKeyAddress := crypto.PubkeyToAddress(*pubKey)
 	// TODO: In follow up PRs, we should allows any valid PCR0 address registered in the contract
 	// to be able to decrypt the snapshot
-	snapshotAddressString := os.Getenv("SNAPSHOT_ADDRESS")
 	snapshotAddress := common.HexToAddress(snapshotAddressString)
 
 	if publicKeyAddress != snapshotAddress {
@@ -102,8 +103,6 @@ func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error 
 	return nil
 }
 
-// TODO: Think about if we need to also check bloom bits
-// TODO: think about if we need to verify receipts here as well or not
 // VerifyBodyMatchesBlockHashProof verifies that the given body matches the block hash which
 // the enclave has signed over.
 func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common.Hash, body *types.Body) error {
@@ -186,9 +185,6 @@ func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, ha
 		return nil, fmt.Errorf("invalid block header RLP in VerifyBlockNumberWithoutAncients: %v", err)
 	}
 
-	if header == nil {
-		return nil, fmt.Errorf("header #%d not found", number)
-	}
 	if header.Number.Uint64() != number {
 		return nil, fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
 	}
@@ -212,7 +208,12 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 	if root != header.ReceiptHash {
 		return fmt.Errorf("receipt root mismatch: have %v, want %v", root, header.ReceiptHash)
 	}
-	fmt.Printf("receipt root")
+
+	// Also verify bloom bits
+	blockBloom := types.MergeBloom(receipts)
+	if blockBloom != header.Bloom {
+		return fmt.Errorf("receipt bloom mismatch: have %v, want %v", blockBloom, header.Bloom)
+	}
 
 	return nil
 }
