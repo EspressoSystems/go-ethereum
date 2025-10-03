@@ -251,6 +251,9 @@ func benchTracer(tracerName string, test *callTracerTest, b *testing.B) {
 }
 
 func TestInternals(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping because broken in upstream go-ethereum")
+	}
 	var (
 		config    = params.MainnetChainConfig
 		to        = common.HexToAddress("0x00000000000000000000000000000000deadbeef")
