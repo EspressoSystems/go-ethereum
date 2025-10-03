@@ -18,6 +18,7 @@ package tracetest
 
 import (
 	"encoding/json"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -31,7 +32,9 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/tests"
 )
 
@@ -247,156 +250,158 @@ func benchTracer(tracerName string, test *callTracerTest, b *testing.B) {
 	}
 }
 
-// This test is broken in upstream go-ethereum
-// func TestInternals(t *testing.T) {
-// 	var (
-// 		config    = params.MainnetChainConfig
-// 		to        = common.HexToAddress("0x00000000000000000000000000000000deadbeef")
-// 		originHex = "0x71562b71999873db5b286df957af199ec94617f7"
-// 		origin    = common.HexToAddress(originHex)
-// 		signer    = types.LatestSigner(config)
-// 		key, _    = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-// 		context   = vm.BlockContext{
-// 			CanTransfer: core.CanTransfer,
-// 			Transfer:    core.Transfer,
-// 			Coinbase:    common.Address{},
-// 			BlockNumber: new(big.Int).SetUint64(8000000),
-// 			Time:        5,
-// 			Difficulty:  big.NewInt(0x30000),
-// 			GasLimit:    uint64(6000000),
-// 			BaseFee:     new(big.Int),
-// 		}
-// 	)
-// 	mkTracer := func(name string, cfg json.RawMessage) *tracers.Tracer {
-// 		tr, err := tracers.DefaultDirectory.New(name, nil, cfg, config)
-// 		if err != nil {
-// 			t.Fatalf("failed to create call tracer: %v", err)
-// 		}
-// 		return tr
-// 	}
+func TestInternals(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping because broken in upstream go-ethereum")
+	}
+	var (
+		config    = params.MainnetChainConfig
+		to        = common.HexToAddress("0x00000000000000000000000000000000deadbeef")
+		originHex = "0x71562b71999873db5b286df957af199ec94617f7"
+		origin    = common.HexToAddress(originHex)
+		signer    = types.LatestSigner(config)
+		key, _    = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		context   = vm.BlockContext{
+			CanTransfer: core.CanTransfer,
+			Transfer:    core.Transfer,
+			Coinbase:    common.Address{},
+			BlockNumber: new(big.Int).SetUint64(8000000),
+			Time:        5,
+			Difficulty:  big.NewInt(0x30000),
+			GasLimit:    uint64(6000000),
+			BaseFee:     new(big.Int),
+		}
+	)
+	mkTracer := func(name string, cfg json.RawMessage) *tracers.Tracer {
+		tr, err := tracers.DefaultDirectory.New(name, nil, cfg, config)
+		if err != nil {
+			t.Fatalf("failed to create call tracer: %v", err)
+		}
+		return tr
+	}
 
-// 	for _, tc := range []struct {
-// 		name   string
-// 		code   []byte
-// 		tracer *tracers.Tracer
-// 		want   string
-// 	}{
-// 		{
-// 			// TestZeroValueToNotExitCall tests the calltracer(s) on the following:
-// 			// Tx to A, A calls B with zero value. B does not already exist.
-// 			// Expected: that enter/exit is invoked and the inner call is shown in the result
-// 			name: "ZeroValueToNotExitCall",
-// 			code: []byte{
-// 				byte(vm.PUSH1), 0x0, byte(vm.DUP1), byte(vm.DUP1), byte(vm.DUP1), // in and outs zero
-// 				byte(vm.DUP1), byte(vm.PUSH1), 0xff, byte(vm.GAS), // value=0,address=0xff, gas=GAS
-// 				byte(vm.CALL),
-// 			},
-// 			tracer: mkTracer("callTracer", nil),
-// 			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0xe3a8"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x54d8"}],"from":"%s","gas":"0x13880","gasUsed":"0x54d8","to":"0x00000000000000000000000000000000deadbeef","input":"0x","calls":[{"from":"0x00000000000000000000000000000000deadbeef","gas":"0xe01a","gasUsed":"0x0","to":"0x00000000000000000000000000000000000000ff","input":"0x","value":"0x0","type":"CALL"}],"value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
-// 		},
-// 		{
-// 			name:   "Stack depletion in LOG0",
-// 			code:   []byte{byte(vm.LOG3)},
-// 			tracer: mkTracer("callTracer", json.RawMessage(`{ "withLog": true }`)),
-// 			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0x0"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x13880"}],"from":"%s","gas":"0x13880","gasUsed":"0x13880","to":"0x00000000000000000000000000000000deadbeef","input":"0x","error":"stack underflow (0 \u003c=\u003e 5)","value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
-// 		},
-// 		{
-// 			name: "Mem expansion in LOG0",
-// 			code: []byte{
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.MSTORE),
-// 				byte(vm.PUSH1), 0xff,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.LOG0),
-// 			},
-// 			tracer: mkTracer("callTracer", json.RawMessage(`{ "withLog": true }`)),
-// 			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0xdce2"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x5b9e"}],"from":"%s","gas":"0x13880","gasUsed":"0x5b9e","to":"0x00000000000000000000000000000000deadbeef","input":"0x","logs":[{"address":"0x00000000000000000000000000000000deadbeef","topics":[],"data":"0x000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","position":"0x0"}],"value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
-// 		},
-// 		{
-// 			// Leads to OOM on the prestate tracer
-// 			name: "Prestate-tracer - CREATE2 OOM",
-// 			code: []byte{
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.MSTORE),
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH5), 0xff, 0xff, 0xff, 0xff, 0xff,
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.CREATE2),
-// 				byte(vm.PUSH1), 0xff,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.LOG0),
-// 			},
-// 			tracer: mkTracer("prestateTracer", nil),
-// 			want:   fmt.Sprintf(`{"0x0000000000000000000000000000000000000000":{"balance":"0x0"},"0x00000000000000000000000000000000deadbeef":{"balance":"0x0","code":"0x6001600052600164ffffffffff60016000f560ff6000a0"},"%s":{"balance":"0x1c6bf52634000"}}`, originHex),
-// 		},
-// 		{
-// 			// CREATE2 which requires padding memory by prestate tracer
-// 			name: "Prestate-tracer - CREATE2 Memory padding",
-// 			code: []byte{
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.MSTORE),
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0xff,
-// 				byte(vm.PUSH1), 0x1,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.CREATE2),
-// 				byte(vm.PUSH1), 0xff,
-// 				byte(vm.PUSH1), 0x0,
-// 				byte(vm.LOG0),
-// 			},
-// 			tracer: mkTracer("prestateTracer", nil),
-// 			want:   fmt.Sprintf(`{"0x0000000000000000000000000000000000000000":{"balance":"0x0"},"0x00000000000000000000000000000000deadbeef":{"balance":"0x0","code":"0x6001600052600160ff60016000f560ff6000a0"},"%s":{"balance":"0x1c6bf52634000"}}`, originHex),
-// 		},
-// 	} {
-// 		t.Run(tc.name, func(t *testing.T) {
-// 			st := tests.MakePreState(rawdb.NewMemoryDatabase(),
-// 				types.GenesisAlloc{
-// 					to: types.Account{
-// 						Code: tc.code,
-// 					},
-// 					origin: types.Account{
-// 						Balance: big.NewInt(500000000000000),
-// 					},
-// 				}, false, rawdb.HashScheme)
-// 			defer st.Close()
+	for _, tc := range []struct {
+		name   string
+		code   []byte
+		tracer *tracers.Tracer
+		want   string
+	}{
+		{
+			// TestZeroValueToNotExitCall tests the calltracer(s) on the following:
+			// Tx to A, A calls B with zero value. B does not already exist.
+			// Expected: that enter/exit is invoked and the inner call is shown in the result
+			name: "ZeroValueToNotExitCall",
+			code: []byte{
+				byte(vm.PUSH1), 0x0, byte(vm.DUP1), byte(vm.DUP1), byte(vm.DUP1), // in and outs zero
+				byte(vm.DUP1), byte(vm.PUSH1), 0xff, byte(vm.GAS), // value=0,address=0xff, gas=GAS
+				byte(vm.CALL),
+			},
+			tracer: mkTracer("callTracer", nil),
+			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0xe3a8"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x54d8"}],"from":"%s","gas":"0x13880","gasUsed":"0x54d8","to":"0x00000000000000000000000000000000deadbeef","input":"0x","calls":[{"from":"0x00000000000000000000000000000000deadbeef","gas":"0xe01a","gasUsed":"0x0","to":"0x00000000000000000000000000000000000000ff","input":"0x","value":"0x0","type":"CALL"}],"value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
+		},
+		{
+			name:   "Stack depletion in LOG0",
+			code:   []byte{byte(vm.LOG3)},
+			tracer: mkTracer("callTracer", json.RawMessage(`{ "withLog": true }`)),
+			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0x0"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x13880"}],"from":"%s","gas":"0x13880","gasUsed":"0x13880","to":"0x00000000000000000000000000000000deadbeef","input":"0x","error":"stack underflow (0 \u003c=\u003e 5)","value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
+		},
+		{
+			name: "Mem expansion in LOG0",
+			code: []byte{
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.MSTORE),
+				byte(vm.PUSH1), 0xff,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.LOG0),
+			},
+			tracer: mkTracer("callTracer", json.RawMessage(`{ "withLog": true }`)),
+			want:   fmt.Sprintf(`{"beforeEVMTransfers":[{"purpose":"feePayment","from":"%s","to":null,"value":"0x13880"}],"afterEVMTransfers":[{"purpose":"gasRefund","from":null,"to":"%s","value":"0xdce2"},{"purpose":"tip","from":null,"to":"0x0000000000000000000000000000000000000000","value":"0x5b9e"}],"from":"%s","gas":"0x13880","gasUsed":"0x5b9e","to":"0x00000000000000000000000000000000deadbeef","input":"0x","logs":[{"address":"0x00000000000000000000000000000000deadbeef","topics":[],"data":"0x000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","position":"0x0"}],"value":"0x0","type":"CALL"}`, origin.Hex(), origin.Hex(), originHex),
+		},
+		{
+			// Leads to OOM on the prestate tracer
+			name: "Prestate-tracer - CREATE2 OOM",
+			code: []byte{
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.MSTORE),
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH5), 0xff, 0xff, 0xff, 0xff, 0xff,
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.CREATE2),
+				byte(vm.PUSH1), 0xff,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.LOG0),
+			},
+			tracer: mkTracer("prestateTracer", nil),
+			want:   fmt.Sprintf(`{"0x0000000000000000000000000000000000000000":{"balance":"0x0"},"0x00000000000000000000000000000000deadbeef":{"balance":"0x0","code":"0x6001600052600164ffffffffff60016000f560ff6000a0"},"%s":{"balance":"0x1c6bf52634000"}}`, originHex),
+		},
+		{
+			// CREATE2 which requires padding memory by prestate tracer
+			name: "Prestate-tracer - CREATE2 Memory padding",
+			code: []byte{
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.MSTORE),
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0xff,
+				byte(vm.PUSH1), 0x1,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.CREATE2),
+				byte(vm.PUSH1), 0xff,
+				byte(vm.PUSH1), 0x0,
+				byte(vm.LOG0),
+			},
+			tracer: mkTracer("prestateTracer", nil),
+			want:   fmt.Sprintf(`{"0x0000000000000000000000000000000000000000":{"balance":"0x0"},"0x00000000000000000000000000000000deadbeef":{"balance":"0x0","code":"0x6001600052600160ff60016000f560ff6000a0"},"%s":{"balance":"0x1c6bf52634000"}}`, originHex),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := tests.MakePreState(rawdb.NewMemoryDatabase(),
+				types.GenesisAlloc{
+					to: types.Account{
+						Code: tc.code,
+					},
+					origin: types.Account{
+						Balance: big.NewInt(500000000000000),
+					},
+				}, false, rawdb.HashScheme)
+			defer st.Close()
 
-// 			logState := vm.StateDB(st.StateDB)
-// 			if hooks := tc.tracer.Hooks; hooks != nil {
-// 				logState = state.NewHookedState(st.StateDB, hooks)
-// 			}
+			logState := vm.StateDB(st.StateDB)
+			if hooks := tc.tracer.Hooks; hooks != nil {
+				logState = state.NewHookedState(st.StateDB, hooks)
+			}
 
-// 			tx, err := types.SignNewTx(key, signer, &types.LegacyTx{
-// 				To:       &to,
-// 				Value:    big.NewInt(0),
-// 				Gas:      80000,
-// 				GasPrice: big.NewInt(1),
-// 			})
-// 			if err != nil {
-// 				t.Fatalf("test %v: failed to sign transaction: %v", tc.name, err)
-// 			}
-// 			evm := vm.NewEVM(context, logState, config, vm.Config{Tracer: tc.tracer.Hooks})
-// 			msg, err := core.TransactionToMessage(tx, signer, big.NewInt(0), core.MessageReplayMode)
-// 			if err != nil {
-// 				t.Fatalf("test %v: failed to create message: %v", tc.name, err)
-// 			}
-// 			tc.tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
-// 			vmRet, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(tx.Gas()))
-// 			if err != nil {
-// 				t.Fatalf("test %v: failed to execute transaction: %v", tc.name, err)
-// 			}
-// 			tc.tracer.OnTxEnd(&types.Receipt{GasUsed: vmRet.UsedGas}, nil)
-// 			// Retrieve the trace result and compare against the expected
-// 			res, err := tc.tracer.GetResult()
-// 			if err != nil {
-// 				t.Fatalf("test %v: failed to retrieve trace result: %v", tc.name, err)
-// 			}
-// 			if string(res) != tc.want {
-// 				t.Errorf("test %v: trace mismatch\n have: %v\n want: %v\n", tc.name, string(res), tc.want)
-// 			}
-// 		})
-// 	}
-// }
+			tx, err := types.SignNewTx(key, signer, &types.LegacyTx{
+				To:       &to,
+				Value:    big.NewInt(0),
+				Gas:      80000,
+				GasPrice: big.NewInt(1),
+			})
+			if err != nil {
+				t.Fatalf("test %v: failed to sign transaction: %v", tc.name, err)
+			}
+			evm := vm.NewEVM(context, logState, config, vm.Config{Tracer: tc.tracer.Hooks})
+			msg, err := core.TransactionToMessage(tx, signer, big.NewInt(0), core.MessageReplayMode)
+			if err != nil {
+				t.Fatalf("test %v: failed to create message: %v", tc.name, err)
+			}
+			tc.tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
+			vmRet, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(tx.Gas()))
+			if err != nil {
+				t.Fatalf("test %v: failed to execute transaction: %v", tc.name, err)
+			}
+			tc.tracer.OnTxEnd(&types.Receipt{GasUsed: vmRet.UsedGas}, nil)
+			// Retrieve the trace result and compare against the expected
+			res, err := tc.tracer.GetResult()
+			if err != nil {
+				t.Fatalf("test %v: failed to retrieve trace result: %v", tc.name, err)
+			}
+			if string(res) != tc.want {
+				t.Errorf("test %v: trace mismatch\n have: %v\n want: %v\n", tc.name, string(res), tc.want)
+			}
+		})
+	}
+}

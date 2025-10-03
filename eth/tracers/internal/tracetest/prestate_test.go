@@ -16,106 +16,130 @@
 
 package tracetest
 
-// // prestateTrace is the result of a prestateTrace run.
-// type prestateTrace = map[common.Address]*account
+import (
+	"encoding/json"
+	"math/big"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 
-// type account struct {
-// 	Balance string                      `json:"balance"`
-// 	Code    string                      `json:"code"`
-// 	Nonce   uint64                      `json:"nonce"`
-// 	Storage map[common.Hash]common.Hash `json:"storage"`
-// }
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/rawdb"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/eth/tracers"
+	"github.com/ethereum/go-ethereum/tests"
+)
 
-// // prestateTracerTest defines a single test to check the stateDiff tracer against.
-// type prestateTracerTest struct {
-// 	tracerTestEnv
-// 	Result interface{} `json:"result"`
-// }
+// prestateTrace is the result of a prestateTrace run.
+type prestateTrace = map[common.Address]*account
 
-// TODO: This test is broken in upstream go-ethereum
+type account struct {
+	Balance string                      `json:"balance"`
+	Code    string                      `json:"code"`
+	Nonce   uint64                      `json:"nonce"`
+	Storage map[common.Hash]common.Hash `json:"storage"`
+}
 
-// func TestPrestateTracerLegacy(t *testing.T) {
-// 	testPrestateTracer("prestateTracerLegacy", "prestate_tracer_legacy", t)
-// }
+// prestateTracerTest defines a single test to check the stateDiff tracer against.
+type prestateTracerTest struct {
+	tracerTestEnv
+	Result interface{} `json:"result"`
+}
 
-// func TestPrestateTracer(t *testing.T) {
-// 	testPrestateTracer("prestateTracer", "prestate_tracer", t)
-// }
+func TestPrestateTracerLegacy(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping because broken in upstream go-ethereum")
+	}
+	testPrestateTracer("prestateTracerLegacy", "prestate_tracer_legacy", t)
+}
 
-// func TestPrestateWithDiffModeTracer(t *testing.T) {
-// 	testPrestateTracer("prestateTracer", "prestate_tracer_with_diff_mode", t)
-// }
+func TestPrestateTracer(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping because broken in upstream go-ethereum")
+	}
+	testPrestateTracer("prestateTracer", "prestate_tracer", t)
+}
 
-// func testPrestateTracer(tracerName string, dirPath string, t *testing.T) {
-// 	files, err := os.ReadDir(filepath.Join("testdata", dirPath))
-// 	if err != nil {
-// 		t.Fatalf("failed to retrieve tracer test suite: %v", err)
-// 	}
-// 	for _, file := range files {
-// 		if !strings.HasSuffix(file.Name(), ".json") {
-// 			continue
-// 		}
-// 		t.Run(camel(strings.TrimSuffix(file.Name(), ".json")), func(t *testing.T) {
-// 			t.Parallel()
+func TestPrestateWithDiffModeTracer(t *testing.T) {
+	if os.Getenv("CI") != "" {
+		t.Skip("Skipping because broken in upstream go-ethereum")
+	}
+	testPrestateTracer("prestateTracer", "prestate_tracer_with_diff_mode", t)
+}
 
-// 			var (
-// 				test = new(prestateTracerTest)
-// 				tx   = new(types.Transaction)
-// 			)
-// 			// Call tracer test found, read if from disk
-// 			if blob, err := os.ReadFile(filepath.Join("testdata", dirPath, file.Name())); err != nil {
-// 				t.Fatalf("failed to read testcase: %v", err)
-// 			} else if err := json.Unmarshal(blob, test); err != nil {
-// 				t.Fatalf("failed to parse testcase: %v", err)
-// 			}
-// 			if err := tx.UnmarshalBinary(common.FromHex(test.Input)); err != nil {
-// 				t.Fatalf("failed to parse testcase input: %v", err)
-// 			}
-// 			// Configure a blockchain with the given prestate
-// 			var (
-// 				context = test.Context.toBlockContext(test.Genesis)
-// 				signer  = types.MakeSigner(test.Genesis.Config, new(big.Int).SetUint64(uint64(test.Context.Number)), uint64(test.Context.Time), context.ArbOSVersion)
-// 				state   = tests.MakePreState(rawdb.NewMemoryDatabase(), test.Genesis.Alloc, false, rawdb.HashScheme)
-// 			)
-// 			defer state.Close()
+func testPrestateTracer(tracerName string, dirPath string, t *testing.T) {
+	files, err := os.ReadDir(filepath.Join("testdata", dirPath))
+	if err != nil {
+		t.Fatalf("failed to retrieve tracer test suite: %v", err)
+	}
+	for _, file := range files {
+		if !strings.HasSuffix(file.Name(), ".json") {
+			continue
+		}
+		t.Run(camel(strings.TrimSuffix(file.Name(), ".json")), func(t *testing.T) {
+			t.Parallel()
 
-// 			tracer, err := tracers.DefaultDirectory.New(tracerName, new(tracers.Context), test.TracerConfig, test.Genesis.Config)
-// 			if err != nil {
-// 				t.Fatalf("failed to create call tracer: %v", err)
-// 			}
+			var (
+				test = new(prestateTracerTest)
+				tx   = new(types.Transaction)
+			)
+			// Call tracer test found, read if from disk
+			if blob, err := os.ReadFile(filepath.Join("testdata", dirPath, file.Name())); err != nil {
+				t.Fatalf("failed to read testcase: %v", err)
+			} else if err := json.Unmarshal(blob, test); err != nil {
+				t.Fatalf("failed to parse testcase: %v", err)
+			}
+			if err := tx.UnmarshalBinary(common.FromHex(test.Input)); err != nil {
+				t.Fatalf("failed to parse testcase input: %v", err)
+			}
+			// Configure a blockchain with the given prestate
+			var (
+				context = test.Context.toBlockContext(test.Genesis)
+				signer  = types.MakeSigner(test.Genesis.Config, new(big.Int).SetUint64(uint64(test.Context.Number)), uint64(test.Context.Time), context.ArbOSVersion)
+				state   = tests.MakePreState(rawdb.NewMemoryDatabase(), test.Genesis.Alloc, false, rawdb.HashScheme)
+			)
+			defer state.Close()
 
-// 			msg, err := core.TransactionToMessage(tx, signer, context.BaseFee, core.MessageReplayMode)
-// 			if err != nil {
-// 				t.Fatalf("failed to prepare transaction for tracing: %v", err)
-// 			}
-// 			evm := vm.NewEVM(context, state.StateDB, test.Genesis.Config, vm.Config{Tracer: tracer.Hooks})
-// 			tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
-// 			vmRet, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(tx.Gas()))
-// 			if err != nil {
-// 				t.Fatalf("failed to execute transaction: %v", err)
-// 			}
-// 			tracer.OnTxEnd(&types.Receipt{GasUsed: vmRet.UsedGas}, nil)
-// 			// Retrieve the trace result and compare against the expected
-// 			res, err := tracer.GetResult()
-// 			if err != nil {
-// 				t.Fatalf("failed to retrieve trace result: %v", err)
-// 			}
-// 			// The legacy javascript calltracer marshals json in js, which
-// 			// is not deterministic (as opposed to the golang json encoder).
-// 			if strings.HasSuffix(dirPath, "_legacy") {
-// 				// This is a tweak to make it deterministic. Can be removed when
-// 				// we remove the legacy tracer.
-// 				var x prestateTrace
-// 				json.Unmarshal(res, &x)
-// 				res, _ = json.Marshal(x)
-// 			}
-// 			want, err := json.Marshal(test.Result)
-// 			if err != nil {
-// 				t.Fatalf("failed to marshal test: %v", err)
-// 			}
-// 			if string(want) != string(res) {
-// 				t.Fatalf("trace mismatch\n have: %v\n want: %v\n", string(res), string(want))
-// 			}
-// 		})
-// 	}
-// }
+			tracer, err := tracers.DefaultDirectory.New(tracerName, new(tracers.Context), test.TracerConfig, test.Genesis.Config)
+			if err != nil {
+				t.Fatalf("failed to create call tracer: %v", err)
+			}
+
+			msg, err := core.TransactionToMessage(tx, signer, context.BaseFee, core.MessageReplayMode)
+			if err != nil {
+				t.Fatalf("failed to prepare transaction for tracing: %v", err)
+			}
+			evm := vm.NewEVM(context, state.StateDB, test.Genesis.Config, vm.Config{Tracer: tracer.Hooks})
+			tracer.OnTxStart(evm.GetVMContext(), tx, msg.From)
+			vmRet, err := core.ApplyMessage(evm, msg, new(core.GasPool).AddGas(tx.Gas()))
+			if err != nil {
+				t.Fatalf("failed to execute transaction: %v", err)
+			}
+			tracer.OnTxEnd(&types.Receipt{GasUsed: vmRet.UsedGas}, nil)
+			// Retrieve the trace result and compare against the expected
+			res, err := tracer.GetResult()
+			if err != nil {
+				t.Fatalf("failed to retrieve trace result: %v", err)
+			}
+			// The legacy javascript calltracer marshals json in js, which
+			// is not deterministic (as opposed to the golang json encoder).
+			if strings.HasSuffix(dirPath, "_legacy") {
+				// This is a tweak to make it deterministic. Can be removed when
+				// we remove the legacy tracer.
+				var x prestateTrace
+				json.Unmarshal(res, &x)
+				res, _ = json.Marshal(x)
+			}
+			want, err := json.Marshal(test.Result)
+			if err != nil {
+				t.Fatalf("failed to marshal test: %v", err)
+			}
+			if string(want) != string(res) {
+				t.Fatalf("trace mismatch\n have: %v\n want: %v\n", string(res), string(want))
+			}
+		})
+	}
+}
