@@ -49,7 +49,7 @@ func TestHeaderStorage(t *testing.T) {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
@@ -99,7 +99,7 @@ func TestBodyStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(db, []common.Hash{hash}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
@@ -154,7 +154,7 @@ func TestBlockStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
@@ -214,7 +214,7 @@ func TestPartialBlockStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
@@ -325,7 +325,7 @@ func TestCanonicalMappingStorage(t *testing.T) {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
@@ -378,7 +378,7 @@ func TestHeadStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Store all headers
 	err = StoreHeaderSignatureForTests(db, []common.Hash{blockHead.Header().Hash(), blockFull.Header().Hash(), blockFast.Header().Hash()}, key)
 	if err != nil {
@@ -461,7 +461,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Signature over the header
 	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
@@ -595,7 +595,7 @@ func TestCanonicalHashIteration(t *testing.T) {
 		t.Fatalf("failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	SetDefaultTrieHasher(newTestHasher())
 	// Fill database with testing data.
 	for i := uint64(1); i <= 8; i++ {
@@ -606,7 +606,6 @@ func TestCanonicalHashIteration(t *testing.T) {
 		if err != nil {
 			t.Fatalf("failed to store header signature: %v", err)
 		}
-
 	}
 	for i, c := range cases {
 		numbers, _ := ReadAllCanonicalHashes(db, c.from, c.to, c.limit)
@@ -642,7 +641,7 @@ func TestHashesInRange(t *testing.T) {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Store header hashes
 	StoreHeaderSignatureForTests(db, headerHashes, key)
 	if have, want := len(ReadAllHashesInRange(db, 10, 10)), 10; have != want {
@@ -835,7 +834,7 @@ func TestReadLogs(t *testing.T) {
 		t.Fatalf("Failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 
 	// Signature over the header
 	err = StoreHeaderSignatureForTests(db, []common.Hash{hash}, key)

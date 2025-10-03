@@ -62,7 +62,6 @@ func GetBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) ([]byte, 
 }
 
 func GetHashOverInterface(data interface{}) ([]byte, error) {
-
 	dataBytes, err := rlp.EncodeToBytes(data)
 	if err != nil {
 		return nil, err
@@ -201,7 +200,7 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 	}
 	hasher := DefaultHasher
 
-	root := types.DeriveSha(types.Receipts(receipts), hasher)
+	root := types.DeriveSha(receipts, hasher)
 	if root != header.ReceiptHash {
 		return fmt.Errorf("receipt root mismatch: have %v, want %v", root, header.ReceiptHash)
 	}

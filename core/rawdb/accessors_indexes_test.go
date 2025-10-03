@@ -19,7 +19,6 @@ package rawdb
 import (
 	"bytes"
 	"math/big"
-	"os"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -86,7 +85,7 @@ func TestLookupStorage(t *testing.T) {
 			}
 			// Get the snapshot address
 			snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-			os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+			t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 			SetDefaultTrieHasher(newTestHasher())
 			// Store the signature over the header
 			err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)

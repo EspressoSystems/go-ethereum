@@ -78,7 +78,6 @@ func DeleteCanonicalHash(db ethdb.KeyValueWriter, number uint64) {
 // ReadAllHashes retrieves all the hashes assigned to blocks at a certain heights,
 // both canonical and reorged forks included.
 func ReadAllHashes(db ethdb.KeyValueStore, number uint64) []common.Hash {
-
 	prefix := headerKeyPrefix(number)
 
 	hashes := make([]common.Hash, 0, 1)

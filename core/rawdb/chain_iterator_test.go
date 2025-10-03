@@ -18,7 +18,6 @@ package rawdb
 
 import (
 	"math/big"
-	"os"
 	"reflect"
 	"sort"
 	"sync"
@@ -48,7 +47,7 @@ func TestChainIterator(t *testing.T) {
 		t.Fatalf("failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("failed to store header signature: %v", err)
@@ -148,7 +147,7 @@ func TestIndexTransactions(t *testing.T) {
 		t.Fatalf("failed to generate key pair: %v", err)
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
-	os.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	err = StoreHeaderSignatureForTests(chainDb, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("failed to store header signature: %v", err)
