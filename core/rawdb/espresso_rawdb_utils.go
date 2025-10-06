@@ -15,9 +15,15 @@ import (
 
 var BlockSignaturePrefix = []byte("blockSignature")
 
-var DefaultHasher types.TrieHasher
+var defaultHasher types.TrieHasher
 
-func SetDefaultTrieHasher(hasher types.TrieHasher) { DefaultHasher = hasher }
+func SetDefaultTrieHasher(hasher types.TrieHasher) { defaultHasher = hasher }
+func GetDefaultTrieHasher() (types.TrieHasher, error) {
+	if defaultHasher == nil {
+		return nil, fmt.Errorf("default hasher not set for rawdb")
+	}
+	return defaultHasher, nil
+}
 
 func uint64ToKey(x uint64) []byte {
 	data := make([]byte, 8)
@@ -122,7 +128,10 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 	uncleHash := types.EmptyUncleHash
 	withdrawalRoot := types.EmptyWithdrawalsHash
 
-	hasher := DefaultHasher
+	hasher, err := GetDefaultTrieHasher()
+	if err != nil {
+		return err
+	}
 	// We generate the transaction root and uncle hash and the withdrawal root from the body
 	if len(body.Transactions) > 0 {
 		txRoot = types.DeriveSha(types.Transactions(body.Transactions), hasher)
@@ -198,8 +207,11 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 	if header == nil {
 		return fmt.Errorf("header #%d not found", number)
 	}
-	hasher := DefaultHasher
 
+	hasher, err := GetDefaultTrieHasher()
+	if err != nil {
+		return err
+	}
 	root := types.DeriveSha(receipts, hasher)
 	if root != header.ReceiptHash {
 		return fmt.Errorf("receipt root mismatch: have %v, want %v", root, header.ReceiptHash)
