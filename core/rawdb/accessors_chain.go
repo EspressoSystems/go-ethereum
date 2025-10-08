@@ -334,10 +334,12 @@ func ReadLastPivotNumber(db ethdb.KeyValueReader) *uint64 {
 	if err != nil {
 		return nil
 	}
-	// Verify Block Signature
-	err = VerifyBlockHashSignature(db, header.Hash())
-	if err != nil {
-		return nil
+	if header != nil {
+		// Verify Block Signature
+		err = VerifyBlockHashSignature(db, header.Hash())
+		if err != nil {
+			return nil
+		}
 	}
 
 	return &pivot
@@ -368,11 +370,15 @@ func ReadTxIndexTail(db ethdb.KeyValueReader) *uint64 {
 	if err != nil {
 		return nil
 	}
-	// Verify Block Signature
-	err = VerifyBlockHashSignature(db, header.Hash())
-	if err != nil {
-		return nil
+
+	if header != nil {
+		// Verify Block Signature
+		err = VerifyBlockHashSignature(db, header.Hash())
+		if err != nil {
+			return nil
+		}
 	}
+
 	return &number
 }
 
