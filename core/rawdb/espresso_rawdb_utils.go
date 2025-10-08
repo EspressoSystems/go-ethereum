@@ -14,8 +14,6 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-var BlockSignaturePrefix = []byte("blockSignature")
-
 var defaultHasher types.TrieHasher
 
 func SetDefaultTrieHasher(hasher types.TrieHasher) { defaultHasher = hasher }
@@ -26,21 +24,7 @@ func GetDefaultTrieHasher() (types.TrieHasher, error) {
 	return defaultHasher, nil
 }
 
-func uint64ToKey(x uint64) []byte {
-	data := make([]byte, 8)
-	binary.BigEndian.PutUint64(data, x)
-	return data
-}
-
-func dbKey(prefix []byte, pos uint64) []byte {
-	var key []byte
-	key = append(key, prefix...)
-	key = append(key, uint64ToKey(pos)...)
-	return key
-}
-
-func StoreHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, snapshotSignerPrivateKey *ecdsa.PrivateKey) error {
-	// Generate a new public and private key pair which will be used to sign the block
+func storeHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, snapshotSignerPrivateKey *ecdsa.PrivateKey) error {
 	for _, h := range hash {
 		// Sign the hash of the header using the private key
 		signature, err := crypto.Sign(h.Bytes(), snapshotSignerPrivateKey)
@@ -48,7 +32,7 @@ func StoreHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, s
 			return fmt.Errorf("failed to sign header: %v", err)
 		}
 
-		err = StoreBlockSignatureForTests(db, h, signature)
+		err = storeBlockSignatureForTests(db, h, signature)
 		if err != nil {
 			return fmt.Errorf("failed to store signature: %v", err)
 		}
@@ -56,31 +40,22 @@ func StoreHeaderSignatureForTests(db ethdb.KeyValueWriter, hash []common.Hash, s
 	return nil
 }
 
-func StoreBlockSignatureForTests(db ethdb.KeyValueWriter, blockHash common.Hash, blockSignature []byte) error {
+func storeBlockSignatureForTests(db ethdb.KeyValueWriter, blockHash common.Hash, blockSignature []byte) error {
 	blockNumber := binary.BigEndian.Uint64(blockHash.Bytes())
-	key := dbKey(BlockSignaturePrefix, (blockNumber))
+	key := blockSignatureKey(blockNumber)
 	return db.Put(key, blockSignature)
 }
 
 func GetBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) ([]byte, error) {
 	blockNumber := binary.BigEndian.Uint64(blockHash.Bytes())
-	key := dbKey(BlockSignaturePrefix, (blockNumber))
+	key := blockSignatureKey(blockNumber)
 	return db.Get(key)
 }
 
-func GetHashOverInterface(data interface{}) ([]byte, error) {
-	dataBytes, err := rlp.EncodeToBytes(data)
-	if err != nil {
-		return nil, err
-	}
-	hash := crypto.Keccak256Hash(dataBytes)
-	return hash.Bytes(), nil
-}
-
 func VerifyBlockHashSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
-	snapshotAddressString := os.Getenv("SNAPSHOT_ADDRESS")
-
-	if snapshotAddressString == "" {
+	var snapshotAddressString string
+	var ok bool
+	if snapshotAddressString, ok = IsTEEEnabled(); !ok {
 		return nil
 	}
 	blockSignature, err := GetBlockSignature(db, blockHash)
@@ -103,7 +78,7 @@ func VerifyBlockHashSignature(db ethdb.KeyValueReader, blockHash common.Hash) er
 	snapshotAddress := common.HexToAddress(snapshotAddressString)
 
 	if publicKeyAddress != snapshotAddress {
-		return fmt.Errorf("invalid snapshot address")
+		return fmt.Errorf("signature verification failed")
 	}
 	return nil
 }
@@ -111,7 +86,7 @@ func VerifyBlockHashSignature(db ethdb.KeyValueReader, blockHash common.Hash) er
 // VerifyBodyMatchesBlockHashProof verifies that the given body matches the block hash which
 // the enclave has signed over.
 func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common.Hash, body *types.Body) error {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	if _, ok := IsTEEEnabled(); !ok {
 		return nil
 	}
 	header := ReadHeader(db, hash, number)
@@ -159,7 +134,7 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 }
 
 func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
-	if IsTEEEnabled() {
+	if _, ok := IsTEEEnabled(); !ok {
 		return nil
 	}
 	header := ReadHeader(db, hash, number)
@@ -178,30 +153,31 @@ func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
 /*
 This method is used to verify block number which is supposed to not be present in ancient store
 */
-func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, hash common.Hash) (*types.Header, error) {
-	if IsTEEEnabled() {
+func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64) (*types.Header, error) {
+	if _, ok := IsTEEEnabled(); !ok {
 		return nil, nil
 	}
-	data, _ := db.Get(headerKey(number, hash))
+	data, _ := db.Get(headerHashKey(number))
 	if len(data) == 0 {
 		return nil, fmt.Errorf("header #%d not found", number)
 	}
+	hash := common.BytesToHash(data)
+
+	headerData, _ := db.Get(headerKey(number, hash))
 	header := new(types.Header)
-	if err := rlp.DecodeBytes(data, header); err != nil {
+	if err := rlp.DecodeBytes(headerData, &header); err != nil {
 		return nil, fmt.Errorf("invalid block header RLP in VerifyBlockNumberWithoutAncients: %v", err)
 	}
 
 	if header.Number.Uint64() != number {
 		return nil, fmt.Errorf("header #%d number mismatch: have %v, want %v", number, header.Number, number)
 	}
-	if header.Hash() != hash {
-		return nil, fmt.Errorf("header #%d hash mismatch: have %v, want %v", number, header.Hash(), hash)
-	}
+
 	return header, nil
 }
 
 func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) error {
-	if IsTEEEnabled() {
+	if _, ok := IsTEEEnabled(); !ok {
 		return nil
 	}
 	header := ReadHeader(db, hash, number)
@@ -228,7 +204,7 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 }
 
 func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) ([][]*types.Log, error) {
-	if IsTEEEnabled() {
+	if _, ok := IsTEEEnabled(); !ok {
 		// Return the logs
 		logs := make([][]*types.Log, len(receipts))
 		for i, r := range receipts {
@@ -260,10 +236,6 @@ func HashCode(code []byte) common.Hash {
 // Example verification
 func VerifyBytes(code []byte, codeHash common.Hash) bool {
 	return HashCode(code) == codeHash
-}
-
-func IsTEEEnabled() bool {
-	return os.Getenv("SNAPSHOT_ADDRESS") != ""
 }
 
 func VerifyBloomBits(db ethdb.Database, section uint64, bit uint, sectionSize uint64, expectedHead common.Hash) ([]byte, error) {
@@ -302,4 +274,8 @@ func isBitSet(bloom types.Bloom, bit uint) bool {
 	bitIndex := bit % 8
 	// This calculation is borrowed from `compress.go`
 	return bloom[byteIndex]&(1<<byte(7-bitIndex)) != 0
+}
+
+func IsTEEEnabled() (string, bool) {
+	return os.LookupEnv("SNAPSHOT_ADDRESS")
 }

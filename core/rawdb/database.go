@@ -594,7 +594,7 @@ func InspectDatabase(db ethdb.Database, keyPrefix, keyStart []byte) error {
 }
 
 // printChainMetadata prints out chain metadata to stderr.
-func printChainMetadata(db ethdb.KeyValueReader) {
+func printChainMetadata(db ethdb.KeyValueStore) {
 	fmt.Fprintf(os.Stderr, "Chain metadata\n")
 	for _, v := range ReadChainMetadata(db) {
 		fmt.Fprintf(os.Stderr, "  %s\n", strings.Join(v, ": "))
@@ -605,7 +605,7 @@ func printChainMetadata(db ethdb.KeyValueReader) {
 // ReadChainMetadata returns a set of key/value pairs that contains information
 // about the database chain status. This can be used for diagnostic purposes
 // when investigating the state of the node.
-func ReadChainMetadata(db ethdb.KeyValueReader) [][]string {
+func ReadChainMetadata(db ethdb.KeyValueStore) [][]string {
 	pp := func(val *uint64) string {
 		if val == nil {
 			return "<nil>"
