@@ -41,6 +41,7 @@ import (
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/trie"
 	"github.com/gofrs/flock"
 )
 
@@ -163,6 +164,8 @@ func New(conf *Config) (*Node, error) {
 	node.wsAuth = newHTTPServer(node.log, rpc.DefaultHTTPTimeouts)
 	node.ipc = newIPCServer(node.log, conf.IPCEndpoint())
 
+	// Set the rawdb SetDefaultTrieHasher
+	rawdb.SetDefaultTrieHasher(trie.NewStackTrie(nil))
 	return node, nil
 }
 

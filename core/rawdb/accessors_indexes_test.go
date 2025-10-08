@@ -23,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/internal/blocktest"
 	"github.com/ethereum/go-ethereum/params"
@@ -77,7 +78,20 @@ func TestLookupStorage(t *testing.T) {
 			txs := []*types.Transaction{tx1, tx2, tx3}
 
 			block := types.NewBlock(&types.Header{Number: big.NewInt(314)}, &types.Body{Transactions: txs}, nil, newTestHasher())
-
+			// Create a key to sign the header
+			key, err := crypto.GenerateKey()
+			if err != nil {
+				t.Fatalf("failed to generate key pair: %v", err)
+			}
+			// Get the snapshot address
+			snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+			t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+			SetDefaultTrieHasher(newTestHasher())
+			// Store the signature over the header
+			err = storeHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
+			if err != nil {
+				t.Fatalf("failed to store header signature: %v", err)
+			}
 			// Check that no transactions entries are in a pristine database
 			for i, tx := range txs {
 				if txn, _, _, _ := ReadTransaction(db, tx.Hash()); txn != nil {
