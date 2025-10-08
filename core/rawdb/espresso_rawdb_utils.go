@@ -3,6 +3,7 @@ package rawdb
 import (
 	"crypto/ecdsa"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 
@@ -76,7 +77,7 @@ func GetHashOverInterface(data interface{}) ([]byte, error) {
 	return hash.Bytes(), nil
 }
 
-func VerifyBlockSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
+func VerifyBlockHashSignature(db ethdb.KeyValueReader, blockHash common.Hash) error {
 	snapshotAddressString := os.Getenv("SNAPSHOT_ADDRESS")
 
 	if snapshotAddressString == "" {
@@ -158,7 +159,7 @@ func VerifyBodyMatchesBlockHashProof(db ethdb.Reader, number uint64, hash common
 }
 
 func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	if IsTEEEnabled() {
 		return nil
 	}
 	header := ReadHeader(db, hash, number)
@@ -178,7 +179,7 @@ func VerifyBlockNumber(db ethdb.Reader, number uint64, hash common.Hash) error {
 This method is used to verify block number which is supposed to not be present in ancient store
 */
 func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, hash common.Hash) (*types.Header, error) {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	if IsTEEEnabled() {
 		return nil, nil
 	}
 	data, _ := db.Get(headerKey(number, hash))
@@ -200,7 +201,7 @@ func VerifyBlockNumberWithoutAncients(db ethdb.KeyValueReader, number uint64, ha
 }
 
 func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) error {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	if IsTEEEnabled() {
 		return nil
 	}
 	header := ReadHeader(db, hash, number)
@@ -227,7 +228,7 @@ func VerifyReceiptsInBlock(db ethdb.Reader, number uint64, hash common.Hash, rec
 }
 
 func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipts types.Receipts) ([][]*types.Log, error) {
-	if os.Getenv("SNAPSHOT_ADDRESS") == "" {
+	if IsTEEEnabled() {
 		// Return the logs
 		logs := make([][]*types.Log, len(receipts))
 		for i, r := range receipts {
@@ -245,4 +246,60 @@ func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipt
 		logs[i] = r.Logs
 	}
 	return logs, nil
+}
+
+func HashCode(code []byte) common.Hash {
+	hasher := newHasher()
+	defer hasher.release()
+	hasher.sha.Write(code)
+	var out common.Hash
+	hasher.sha.Read(out[:])
+	return out
+}
+
+// Example verification
+func VerifyBytes(code []byte, codeHash common.Hash) bool {
+	return HashCode(code) == codeHash
+}
+
+func IsTEEEnabled() bool {
+	return os.Getenv("SNAPSHOT_ADDRESS") != ""
+}
+
+func VerifyBloomBits(db ethdb.Database, section uint64, bit uint, sectionSize uint64, expectedHead common.Hash) ([]byte, error) {
+	startBlock := section * sectionSize
+	// This calculation is borrowed from `compress.go`
+	bitset := make([]byte, (sectionSize+7)/8)
+
+	for i := uint64(0); i < sectionSize; i++ {
+		blockNumber := startBlock + i
+		blockHash := ReadCanonicalHash(db, blockNumber)
+
+		// Verify we're on the expected canonical chain
+		if blockNumber == (section+1)*sectionSize-1 && blockHash != expectedHead {
+			return nil, errors.New("canonical chain mismatch")
+		}
+
+		// Get the block's bloom filter (from receipts)
+		receipts := ReadRawReceipts(db, blockHash, blockNumber)
+		var bloom types.Bloom
+		if len(receipts) > 0 {
+			bloom = types.MergeBloom(receipts)
+		}
+
+		if isBitSet(bloom, bit) {
+			// This calculation is borrowed from `compress.go`
+			bitset[i/8] |= 1 << byte(7-i%8)
+		}
+	}
+
+	return bitset, nil
+}
+
+// Simple bit check - no complex transformations needed
+func isBitSet(bloom types.Bloom, bit uint) bool {
+	byteIndex := bit / 8
+	bitIndex := bit % 8
+	// This calculation is borrowed from `compress.go`
+	return bloom[byteIndex]&(1<<byte(7-bitIndex)) != 0
 }
