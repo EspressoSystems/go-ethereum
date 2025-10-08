@@ -88,7 +88,7 @@ func TestLookupStorage(t *testing.T) {
 			t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 			SetDefaultTrieHasher(newTestHasher())
 			// Store the signature over the header
-			err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
+			err = storeHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
 			if err != nil {
 				t.Fatalf("failed to store header signature: %v", err)
 			}

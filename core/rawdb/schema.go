@@ -145,6 +145,8 @@ var (
 	FixedCommitteeRootKey = []byte("fixedRoot-") // bigEndian64(syncPeriod) -> committee root hash
 	SyncCommitteeKey      = []byte("committee-") // bigEndian64(syncPeriod) -> serialized committee
 
+	BlockSignaturePrefix = []byte("blockSignature")
+
 	preimageCounter    = metrics.NewRegisteredCounter("db/preimage/total", nil)
 	preimageHitCounter = metrics.NewRegisteredCounter("db/preimage/hits", nil)
 )
@@ -162,6 +164,10 @@ func encodeBlockNumber(number uint64) []byte {
 	enc := make([]byte, 8)
 	binary.BigEndian.PutUint64(enc, number)
 	return enc
+}
+
+func blockSignatureKey(number uint64) []byte {
+	return append(BlockSignaturePrefix, encodeBlockNumber(number)...)
 }
 
 // headerKeyPrefix = headerPrefix + num (uint64 big endian)

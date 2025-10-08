@@ -50,7 +50,7 @@ func TestHeaderStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
-	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestBodyStorage(t *testing.T) {
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
-	err = StoreHeaderSignatureForTests(db, []common.Hash{hash}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{hash}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestBlockStorage(t *testing.T) {
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
-	err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestPartialBlockStorage(t *testing.T) {
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	// Sign and store the hash
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
-	err = StoreHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{block.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestCanonicalMappingStorage(t *testing.T) {
 	}
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
-	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestHeadStorage(t *testing.T) {
 
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Store all headers
-	err = StoreHeaderSignatureForTests(db, []common.Hash{blockHead.Header().Hash(), blockFull.Header().Hash(), blockFast.Header().Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{blockHead.Header().Hash(), blockFull.Header().Hash(), blockFast.Header().Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestBlockReceiptStorage(t *testing.T) {
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Signature over the header
-	err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestCanonicalHashIteration(t *testing.T) {
 		header := types.Header{Number: big.NewInt(int64(i))}
 		WriteHeader(db, &header)
 		WriteCanonicalHash(db, header.Hash(), i)
-		err = StoreHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
+		err = storeHeaderSignatureForTests(db, []common.Hash{header.Hash()}, key)
 		if err != nil {
 			t.Fatalf("failed to store header signature: %v", err)
 		}
@@ -632,6 +632,7 @@ func TestHashesInRange(t *testing.T) {
 		for ii := 0; ii < i; ii++ {
 			h := mkHeader(i, ii)
 			WriteHeader(db, h)
+			WriteCanonicalHash(db, h.Hash(), h.Number.Uint64())
 			headerHashes = append(headerHashes, h.Hash())
 			total++
 		}
@@ -643,7 +644,7 @@ func TestHashesInRange(t *testing.T) {
 	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 	// Store header hashes
-	StoreHeaderSignatureForTests(db, headerHashes, key)
+	storeHeaderSignatureForTests(db, headerHashes, key)
 	if have, want := len(ReadAllHashesInRange(db, 10, 10)), 10; have != want {
 		t.Fatalf("Wrong number of hashes read, want %d, got %d", want, have)
 	}
@@ -837,7 +838,7 @@ func TestReadLogs(t *testing.T) {
 	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
 
 	// Signature over the header
-	err = StoreHeaderSignatureForTests(db, []common.Hash{hash}, key)
+	err = storeHeaderSignatureForTests(db, []common.Hash{hash}, key)
 	if err != nil {
 		t.Fatalf("Failed to store header signature: %v", err)
 	}
@@ -987,63 +988,78 @@ func BenchmarkDecodeRLPLogs(b *testing.B) {
 	})
 }
 
-// func TestHeadersRLPStorage(t *testing.T) {
-// 	// Have N headers in the freezer
-// 	frdir := t.TempDir()
+func TestHeadersRLPStorage(t *testing.T) {
+	// Have N headers in the freezer
+	frdir := t.TempDir()
 
-// 	db, err := NewDatabaseWithFreezer(NewMemoryDatabase(), frdir, "", false)
-// 	if err != nil {
-// 		t.Fatalf("failed to create database with ancient backend")
-// 	}
-// 	defer db.Close()
+	db, err := NewDatabaseWithFreezer(NewMemoryDatabase(), frdir, "", false)
+	if err != nil {
+		t.Fatalf("failed to create database with ancient backend")
+	}
+	defer db.Close()
 
-// 	// Create blocks
-// 	var chain []*types.Block
-// 	var pHash common.Hash
-// 	for i := 0; i < 100; i++ {
-// 		block := types.NewBlockWithHeader(&types.Header{
-// 			Number:      big.NewInt(int64(i)),
-// 			Extra:       []byte("test block"),
-// 			UncleHash:   types.EmptyUncleHash,
-// 			TxHash:      types.EmptyTxsHash,
-// 			ReceiptHash: types.EmptyReceiptsHash,
-// 			ParentHash:  pHash,
-// 		})
-// 		chain = append(chain, block)
-// 		pHash = block.Hash()
-// 	}
-// 	receipts := make([]types.Receipts, 100)
-// 	// Write first half to ancients
-// 	WriteAncientBlocks(db, chain[:50], receipts[:50])
-// 	// Write second half to db
-// 	for i := 50; i < 100; i++ {
-// 		WriteCanonicalHash(db, chain[i].Hash(), chain[i].NumberU64())
-// 		WriteBlock(db, chain[i])
-// 	}
-// 	checkSequence := func(from, amount int) {
-// 		headersRlp := ReadHeaderRange(db, uint64(from), uint64(amount))
-// 		if have, want := len(headersRlp), amount; have != want {
-// 			t.Fatalf("have %d headers, want %d", have, want)
-// 		}
-// 		for i, headerRlp := range headersRlp {
-// 			var header types.Header
-// 			if err := rlp.DecodeBytes(headerRlp, &header); err != nil {
-// 				t.Fatal(err)
-// 			}
-// 			if have, want := header.Number.Uint64(), uint64(from-i); have != want {
-// 				t.Fatalf("wrong number, have %d want %d", have, want)
-// 			}
-// 		}
-// 	}
-// 	checkSequence(99, 20)  // Latest block and 19 parents
-// 	checkSequence(99, 50)  // Latest block -> all db blocks
-// 	checkSequence(99, 51)  // Latest block -> one from ancients
-// 	checkSequence(99, 52)  // Latest blocks -> two from ancients
-// 	checkSequence(50, 2)   // One from db, one from ancients
-// 	checkSequence(49, 1)   // One from ancients
-// 	checkSequence(49, 50)  // All ancient ones
-// 	checkSequence(99, 100) // All blocks
-// 	checkSequence(0, 1)    // Only genesis
-// 	checkSequence(1, 1)    // Only block 1
-// 	checkSequence(1, 2)    // Genesis + block 1
-// }
+	// Create blocks
+	var chain []*types.Block
+	var pHash common.Hash
+
+	key, err := crypto.GenerateKey()
+	if err != nil {
+		t.Fatalf("Failed to generate key pair: %v", err)
+	}
+	snapShotAddress := crypto.PubkeyToAddress(key.PublicKey).Hex()
+	t.Setenv("SNAPSHOT_ADDRESS", snapShotAddress)
+
+	for i := 0; i < 100; i++ {
+		header := types.Header{
+			Number:      big.NewInt(int64(i)),
+			Extra:       []byte("test block"),
+			UncleHash:   types.EmptyUncleHash,
+			TxHash:      types.EmptyTxsHash,
+			ReceiptHash: types.EmptyReceiptsHash,
+			ParentHash:  pHash,
+		}
+		block := types.NewBlockWithHeader(&header)
+		// Signature over the header
+		err = storeHeaderSignatureForTests(db, []common.Hash{block.Hash()}, key)
+		if err != nil {
+			t.Fatalf("Failed to store header signature: %v", err)
+		}
+		WriteHeader(db, &header)
+		chain = append(chain, block)
+		pHash = block.Hash()
+	}
+	receipts := make([]types.Receipts, 100)
+	// Write first half to ancients
+	WriteAncientBlocks(db, chain[:50], receipts[:50])
+	// Write second half to db
+	for i := 50; i < 100; i++ {
+		WriteCanonicalHash(db, chain[i].Hash(), chain[i].NumberU64())
+		WriteBlock(db, chain[i])
+	}
+	checkSequence := func(from, amount int) {
+		headersRlp := ReadHeaderRange(db, uint64(from), uint64(amount))
+		if have, want := len(headersRlp), amount; have != want {
+			t.Fatalf("have %d headers, want %d", have, want)
+		}
+		for i, headerRlp := range headersRlp {
+			var header types.Header
+			if err := rlp.DecodeBytes(headerRlp, &header); err != nil {
+				t.Fatal(err)
+			}
+			if have, want := header.Number.Uint64(), uint64(from-i); have != want {
+				t.Fatalf("wrong number, have %d want %d", have, want)
+			}
+		}
+	}
+	checkSequence(99, 20)  // Latest block and 19 parents
+	checkSequence(99, 50)  // Latest block -> all db blocks
+	checkSequence(99, 51)  // Latest block -> one from ancients
+	checkSequence(99, 52)  // Latest blocks -> two from ancients
+	checkSequence(50, 2)   // One from db, one from ancients
+	checkSequence(49, 1)   // One from ancients
+	checkSequence(49, 50)  // All ancient ones
+	checkSequence(99, 100) // All blocks
+	checkSequence(0, 1)    // Only genesis
+	checkSequence(1, 1)    // Only block 1
+	checkSequence(1, 2)    // Genesis + block 1
+}
