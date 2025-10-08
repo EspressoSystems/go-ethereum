@@ -18,7 +18,6 @@ package rawdb
 
 import (
 	"bytes"
-	"fmt"
 	"math/big"
 	"testing"
 
@@ -95,7 +94,6 @@ func TestLookupStorage(t *testing.T) {
 				t.Fatalf("failed to store header signature: %v", err)
 			}
 			WriteHeader(db, block.Header())
-			fmt.Printf("Storing header: %v\n", block.Hash())
 			// Write the header
 			// Check that no transactions entries are in a pristine database
 			for i, tx := range txs {

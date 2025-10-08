@@ -224,20 +224,6 @@ func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipt
 	return logs, nil
 }
 
-func HashCode(code []byte) common.Hash {
-	hasher := newHasher()
-	defer hasher.release()
-	hasher.sha.Write(code)
-	var out common.Hash
-	hasher.sha.Read(out[:])
-	return out
-}
-
-// Example verification
-func VerifyBytes(code []byte, codeHash common.Hash) bool {
-	return HashCode(code) == codeHash
-}
-
 func VerifyBloomBits(db ethdb.Database, section uint64, bit uint, sectionSize uint64, expectedHead common.Hash) ([]byte, error) {
 	startBlock := section * sectionSize
 	// This calculation is borrowed from `compress.go`
