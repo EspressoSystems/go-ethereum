@@ -19,7 +19,6 @@ package rawdb
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -100,18 +99,15 @@ func DeleteTxLookupEntries(db ethdb.KeyValueWriter, hashes []common.Hash) {
 func ReadTransaction(db ethdb.Reader, hash common.Hash) (*types.Transaction, common.Hash, uint64, uint64) {
 	blockNumber := ReadTxLookupEntry(db, hash)
 	if blockNumber == nil {
-		fmt.Printf("ReadTransaction: ReadTxLookupEntry failed for %x\n", hash)
 		return nil, common.Hash{}, 0, 0
 	}
 	blockHash := ReadCanonicalHash(db, *blockNumber)
 	if blockHash == (common.Hash{}) {
-		fmt.Printf("ReadTransaction: ReadCanonicalHash failed for %x\n", *blockNumber)
 		return nil, common.Hash{}, 0, 0
 	}
 	body := ReadBody(db, blockHash, *blockNumber)
 	if body == nil {
 		log.Error("Transaction referenced missing", "number", *blockNumber, "hash", blockHash)
-		fmt.Printf("ReadTransaction: ReadBody failed for %x\n", blockHash)
 		return nil, common.Hash{}, 0, 0
 	}
 	for txIndex, tx := range body.Transactions {
@@ -158,6 +154,11 @@ func ReadBloomBits(db ethdb.Database, bit uint, section uint64, head common.Hash
 	if err != nil {
 		return nil, err
 	}
+
+	if _, ok := IsTEEEnabled(); !ok {
+		return bloomBits, nil
+	}
+
 	bloomBitsVerified, err := VerifyBloomBits(db, section, bit, params.BloomBitsBlocks, head)
 	if err != nil {
 		return nil, err
