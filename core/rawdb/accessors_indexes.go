@@ -18,6 +18,7 @@ package rawdb
 
 import (
 	"bytes"
+	"errors"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -147,8 +148,24 @@ func ReadReceipt(db ethdb.Reader, hash common.Hash, config *params.ChainConfig) 
 
 // ReadBloomBits retrieves the compressed bloom bit vector belonging to the given
 // section and bit index from the.
-func ReadBloomBits(db ethdb.KeyValueReader, bit uint, section uint64, head common.Hash) ([]byte, error) {
-	return db.Get(bloomBitsKey(bit, section, head))
+func ReadBloomBits(db ethdb.Database, bit uint, section uint64, head common.Hash) ([]byte, error) {
+	bloomBits, err := db.Get(bloomBitsKey(bit, section, head))
+	if err != nil {
+		return nil, err
+	}
+
+	if _, ok := IsTEEEnabled(); !ok {
+		return bloomBits, nil
+	}
+
+	bloomBitsVerified, err := VerifyBloomBits(db, section, bit, params.BloomBitsBlocks, head)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(bloomBits, bloomBitsVerified) {
+		return nil, errors.New("bloom bits mismatch")
+	}
+	return bloomBits, nil
 }
 
 // WriteBloomBits stores the compressed bloom bits vector belonging to the given

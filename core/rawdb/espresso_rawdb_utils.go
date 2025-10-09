@@ -3,6 +3,7 @@ package rawdb
 import (
 	"crypto/ecdsa"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"os"
 
@@ -221,6 +222,44 @@ func VerifyLogsInBlock(db ethdb.Reader, number uint64, hash common.Hash, receipt
 		logs[i] = r.Logs
 	}
 	return logs, nil
+}
+
+func VerifyBloomBits(db ethdb.Database, section uint64, bit uint, sectionSize uint64, expectedHead common.Hash) ([]byte, error) {
+	startBlock := section * sectionSize
+	// This calculation is borrowed from `compress.go`
+	bitset := make([]byte, (sectionSize+7)/8)
+
+	for i := uint64(0); i < sectionSize; i++ {
+		blockNumber := startBlock + i
+		blockHash := ReadCanonicalHash(db, blockNumber)
+
+		// Verify we're on the expected canonical chain
+		if blockNumber == (section+1)*sectionSize-1 && blockHash != expectedHead {
+			return nil, errors.New("canonical chain mismatch")
+		}
+
+		// Get the block's bloom filter (from receipts)
+		receipts := ReadRawReceipts(db, blockHash, blockNumber)
+		var bloom types.Bloom
+		if len(receipts) > 0 {
+			bloom = types.MergeBloom(receipts)
+		}
+
+		if isBitSet(bloom, bit) {
+			// This calculation is borrowed from `compress.go`
+			bitset[i/8] |= 1 << byte(7-i%8)
+		}
+	}
+
+	return bitset, nil
+}
+
+// Simple bit check - no complex transformations needed
+func isBitSet(bloom types.Bloom, bit uint) bool {
+	byteIndex := bit / 8
+	bitIndex := bit % 8
+	// This calculation is borrowed from `compress.go`
+	return bloom[byteIndex]&(1<<byte(7-bitIndex)) != 0
 }
 
 func IsTEEEnabled() (string, bool) {
