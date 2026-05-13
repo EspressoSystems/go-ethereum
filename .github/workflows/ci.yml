@@ -10,7 +10,7 @@ on:
 
 jobs:
   run-tests:
-    runs-on: ubuntu-4
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
@@ -25,7 +25,7 @@ jobs:
         run: make test
 
   run-linter:
-    runs-on: ubuntu-4
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v5
